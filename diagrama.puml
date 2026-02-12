@@ -1,0 +1,88 @@
+@startuml
+skinparam linetype ortho
+skinparam shadowing false
+skinparam classAttributeIconSize 0
+
+entity "ESPECIALIDAD" as esp {
+  *ID_Especialidad : INT <<PK>>
+  --
+  Nombre : VARCHAR
+}
+
+entity "TIPO_DIAGNOSTICO" as tipod {
+  *ID_Tipo_Diagnostico : INT <<PK>>
+  --
+  Nombre : VARCHAR
+  Categoria : VARCHAR
+}
+
+entity "ZONA" as zona {
+  *ID_Zona : INT <<PK>>
+  --
+  Nombre : VARCHAR
+  Ciudad : VARCHAR
+}
+
+entity "PERSONA" as per {
+  *ID_Persona : INT <<PK>>
+  --
+  CI : VARCHAR
+  Nombre : VARCHAR
+  Fecha_Nacimiento : DATE
+  Sexo : CHAR
+  Direccion : VARCHAR
+  Telefono : VARCHAR
+  Matricula : VARCHAR <<nullable>>
+  *ID_Zona : INT <<FK>>
+  *ID_Especialidad : INT <<FK, nullable>>
+}
+
+entity "HORARIO_MEDICO" as hor {
+  *ID_Horario : INT <<PK>>
+  --
+  Dia_Semana : INT
+  Hora_Inicio : TIME
+  Hora_Fin : TIME
+  Cupo_Maximo : INT
+  *ID_Persona : INT <<FK>>
+}
+
+entity "CITA_MEDICA" as cita {
+  *ID_Cita : INT <<PK>>
+  --
+  Fecha_Registro : DATE
+  Fecha_Cita : DATE
+  Hora : TIME
+  Numero_Turno : INT
+  Estado : VARCHAR
+  *ID_Paciente : INT <<FK>>
+  *ID_Medico : INT <<FK>>
+}
+
+entity "DIAGNOSTICO" as diag {
+  *ID_Diagnostico : INT <<PK>>
+  --
+  Descripcion : TEXT
+  Observaciones : TEXT
+  Tipo_Procedimiento : VARCHAR <<nullable>>
+  *ID_Cita : INT <<FK>>
+  *ID_Tipo_Diagnostico : INT <<FK>>
+}
+
+entity "RECETA" as rec {
+  *ID_Receta : INT <<PK>>
+  --
+  Medicamentos : TEXT
+  Indicaciones : TEXT
+  *ID_Diagnostico : INT <<FK>>
+}
+
+esp ||--o{ per : "puede tener"
+zona ||--o{ per : "pertenece"
+per ||--o{ hor : "disponible"
+per ||--o{ cita : "reserva"
+per ||--o{ cita : "atiende"
+cita ||--o{ diag : "genera"
+tipod ||--o{ diag : "clasifica"
+diag ||--o{ rec : "origina"
+@enduml

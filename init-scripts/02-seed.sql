@@ -67,6 +67,35 @@ DECLARE
         'Quirúrgico','Ambulatorio','Emergencia'
     ];
     estados TEXT[] := ARRAY['Pendiente','Confirmada','Cancelada','Completada','No asistió'];
+    -- Pesos para distribucion no uniforme de tipos de diagnostico (25 pesos)
+    pesos_diag FLOAT[] := ARRAY[
+        15, 12, 10, 9, 8,       -- Clinico, Imagen, Laboratorio, Diferencial, Presuntivo (comunes)
+        7, 6, 5, 5, 4,          -- Definitivo, Prenatal, Molecular, Patologico, Funcional
+        4, 3, 3, 2.5, 2.5,      -- Genetico, Serologico, Histologico, Citologico, Microbiologico
+        2, 1.5, 1.5, 1, 1,      -- Inmunologico, Nutricional, Psicologico, Electrocardio, Ecografico
+        0.8, 0.6, 0.4, 0.3, 0.2 -- Radiologico, Endoscopico, Quirurgico, Ambulatorio, Emergencia
+    ];
+    total_peso_diag FLOAT := 104.8; -- suma de todos los pesos
+    -- Pesos para especialidades: Medicina General la mas comun, Oncologia la mas rara
+    pesos_esp FLOAT[] := ARRAY[
+        18, 14, 12, 10, 8,    -- Med General, Pediatria, Cardiologia, Dermatologia, Neurologia
+        7, 6, 5, 3, 4,        -- Ginecologia, Traumatologia, Oftalmologia, Otorrino, Urologia
+        4, 3, 2.5, 2, 1.5     -- Gastro, Neumologia, Psiquiatria, Endocrinologia, Oncologia
+    ];
+    total_peso_esp FLOAT := 100;
+    -- Pesos para zonas: zonas urbanas mas pobladas
+    pesos_zona FLOAT[] := ARRAY[
+        12, 10, 9, 5, 5,      -- Norte, Sur, Central, Este, Oeste
+        14, 8, 4, 3, 3,       -- Plan3000, Equipetrol, Urbari, LosLotes, Pampa
+        4, 3, 3, 2, 2,        -- Villa1Mayo, Radial10, Radial13, Radial17, Radial26
+        2, 3, 3, 2.5, 2.5     -- Hamacas, LaGuardia, Cotoca, Warnes, Montero
+    ];
+    total_peso_zona FLOAT := 100;
+    v_rand FLOAT;
+    v_acum FLOAT;
+    v_tipo INT;
+    v_esp INT;
+    v_zona INT;
     medicamentos TEXT[] := ARRAY[
         'Paracetamol 500mg','Ibuprofeno 400mg','Amoxicilina 500mg','Omeprazol 20mg',
         'Metformina 850mg','Losartán 50mg','Atorvastatina 20mg','Diclofenaco 50mg',
@@ -123,6 +152,8 @@ DECLARE
 
     v_id_medico INT;
     v_id_paciente INT;
+    idx INT;
+    jdx INT;
 BEGIN
     -- ========== ESPECIALIDAD (15) ==========
     INSERT INTO ESPECIALIDAD (Nombre)
@@ -139,36 +170,56 @@ BEGIN
     FROM generate_series(1, total_zonas) AS i;
 
     -- ========== PERSONA - Médicos (500) ==========
-    INSERT INTO PERSONA (CI, Nombre, Fecha_Nacimiento, Sexo, Direccion, Telefono, Matricula, ID_Zona, ID_Especialidad)
-    SELECT
-        (1000000 + i)::TEXT,
-        nombres[1 + (i % array_length(nombres, 1))] || ' ' ||
-            apellidos[1 + (i % array_length(apellidos, 1))] || ' ' ||
-            apellidos[1 + ((i * 7) % array_length(apellidos, 1))],
-        DATE '1960-01-01' + (random() * 10000)::INT,
-        CASE WHEN random() < 0.5 THEN 'M' ELSE 'F' END,
-        direcciones[1 + (i % array_length(direcciones, 1))] || ' #' || (100 + i)::TEXT,
-        '7' || LPAD((1000000 + (random() * 8999999)::INT)::TEXT, 7, '0'),
-        'MAT-' || LPAD(i::TEXT, 5, '0'),
-        1 + (i % total_zonas),
-        1 + (i % total_especialidades)
-    FROM generate_series(1, total_medicos) AS i;
+    -- Distribucion ponderada por especialidad
+    FOR idx IN 1..total_medicos LOOP
+        v_rand := random() * total_peso_esp;
+        v_acum := 0; v_esp := 1;
+        FOR jdx IN 1..total_especialidades LOOP
+            v_acum := v_acum + pesos_esp[jdx];
+            IF v_rand <= v_acum THEN v_esp := jdx; EXIT; END IF;
+        END LOOP;
+
+        INSERT INTO PERSONA (CI, Nombre, Fecha_Nacimiento, Sexo, Direccion, Telefono, Matricula, ID_Zona, ID_Especialidad)
+        VALUES (
+            (1000000 + idx)::TEXT,
+            nombres[1 + (idx % array_length(nombres, 1))] || ' ' ||
+                apellidos[1 + (idx % array_length(apellidos, 1))] || ' ' ||
+                apellidos[1 + ((idx * 7) % array_length(apellidos, 1))],
+            DATE '1960-01-01' + (random() * 10000)::INT,
+            CASE WHEN random() < 0.55 THEN 'M' ELSE 'F' END,
+            direcciones[1 + (idx % array_length(direcciones, 1))] || ' #' || (100 + idx)::TEXT,
+            '7' || LPAD((1000000 + (random() * 8999999)::INT)::TEXT, 7, '0'),
+            'MAT-' || LPAD(idx::TEXT, 5, '0'),
+            1 + (idx % total_zonas),
+            v_esp
+        );
+    END LOOP;
 
     -- ========== PERSONA - Pacientes (4500) ==========
-    INSERT INTO PERSONA (CI, Nombre, Fecha_Nacimiento, Sexo, Direccion, Telefono, Matricula, ID_Zona, ID_Especialidad)
-    SELECT
-        (2000000 + i)::TEXT,
-        nombres[1 + ((i * 3) % array_length(nombres, 1))] || ' ' ||
-            apellidos[1 + ((i * 11) % array_length(apellidos, 1))] || ' ' ||
-            apellidos[1 + ((i * 13) % array_length(apellidos, 1))],
-        DATE '1950-01-01' + (random() * 25000)::INT,
-        CASE WHEN random() < 0.5 THEN 'M' ELSE 'F' END,
-        direcciones[1 + (i % array_length(direcciones, 1))] || ' #' || (500 + i)::TEXT,
-        '6' || LPAD((1000000 + (random() * 8999999)::INT)::TEXT, 7, '0'),
-        NULL,
-        1 + (i % total_zonas),
-        NULL
-    FROM generate_series(1, total_pacientes) AS i;
+    -- Distribucion ponderada por zona (urbanas mas pobladas)
+    FOR idx IN 1..total_pacientes LOOP
+        v_rand := random() * total_peso_zona;
+        v_acum := 0; v_zona := 1;
+        FOR jdx IN 1..total_zonas LOOP
+            v_acum := v_acum + pesos_zona[jdx];
+            IF v_rand <= v_acum THEN v_zona := jdx; EXIT; END IF;
+        END LOOP;
+
+        INSERT INTO PERSONA (CI, Nombre, Fecha_Nacimiento, Sexo, Direccion, Telefono, Matricula, ID_Zona, ID_Especialidad)
+        VALUES (
+            (2000000 + idx)::TEXT,
+            nombres[1 + ((idx * 3) % array_length(nombres, 1))] || ' ' ||
+                apellidos[1 + ((idx * 11) % array_length(apellidos, 1))] || ' ' ||
+                apellidos[1 + ((idx * 13) % array_length(apellidos, 1))],
+            DATE '1950-01-01' + (random() * 25000)::INT,
+            CASE WHEN random() < 0.52 THEN 'F' ELSE 'M' END,
+            direcciones[1 + (idx % array_length(direcciones, 1))] || ' #' || (500 + idx)::TEXT,
+            '6' || LPAD((1000000 + (random() * 8999999)::INT)::TEXT, 7, '0'),
+            NULL,
+            v_zona,
+            NULL
+        );
+    END LOOP;
 
     -- ========== HORARIO_MEDICO (2500) ==========
     INSERT INTO HORARIO_MEDICO (Dia_Semana, Hora_Inicio, Hora_Fin, Cupo_Maximo, ID_Persona)
@@ -181,26 +232,72 @@ BEGIN
     FROM generate_series(1, total_horarios) AS i;
 
     -- ========== CITA_MEDICA (20000) ==========
+    -- Fechas con estacionalidad: mas citas en invierno (jun-ago), menos en verano (dic-feb)
+    -- Estados con distribucion realista
+    -- Medicos ponderados: los de especialidades comunes atienden mas
     INSERT INTO CITA_MEDICA (Fecha_Registro, Fecha_Cita, Hora, Numero_Turno, Estado, ID_Paciente, ID_Medico)
     SELECT
-        DATE '2024-01-01' + (random() * 700)::INT,
-        DATE '2024-01-01' + (random() * 700)::INT + (random() * 7)::INT,
-        TIME '08:00' + ((i % 10) * INTERVAL '30 minutes'),
-        1 + (i % 30),
-        estados[1 + (i % array_length(estados, 1))],
-        total_medicos + 1 + (i % total_pacientes),
-        1 + (i % total_medicos)
-    FROM generate_series(1, total_citas) AS i;
+        v_fecha_reg, v_fecha_cita, v_hora, v_turno, v_estado, v_pac, v_med
+    FROM (
+        SELECT
+            DATE '2024-01-01' + (
+                CASE
+                    WHEN random() < 0.15 THEN (random() * 59)::INT           -- Ene-Feb (15%)
+                    WHEN random() < 0.30 THEN 60 + (random() * 91)::INT      -- Mar-May (15%)
+                    WHEN random() < 0.65 THEN 152 + (random() * 91)::INT     -- Jun-Ago (35% pico invernal)
+                    WHEN random() < 0.85 THEN 244 + (random() * 91)::INT     -- Sep-Nov (20%)
+                    ELSE 335 + (random() * 30)::INT                           -- Dic (15%)
+                END
+                + CASE WHEN random() < 0.55 THEN 0 ELSE 365 END              -- 2024 o 2025
+            ) AS v_fecha_reg,
+            DATE '2024-01-01' + (
+                CASE
+                    WHEN random() < 0.15 THEN (random() * 59)::INT
+                    WHEN random() < 0.30 THEN 60 + (random() * 91)::INT
+                    WHEN random() < 0.65 THEN 152 + (random() * 91)::INT
+                    WHEN random() < 0.85 THEN 244 + (random() * 91)::INT
+                    ELSE 335 + (random() * 30)::INT
+                END
+                + CASE WHEN random() < 0.55 THEN 0 ELSE 365 END
+                + (random() * 7)::INT
+            ) AS v_fecha_cita,
+            TIME '08:00' + ((i % 10) * INTERVAL '30 minutes') AS v_hora,
+            1 + (i % 30) AS v_turno,
+            CASE
+                WHEN random() < 0.45 THEN 'Completada'
+                WHEN random() < 0.70 THEN 'Confirmada'
+                WHEN random() < 0.85 THEN 'Pendiente'
+                WHEN random() < 0.93 THEN 'No asistió'
+                ELSE 'Cancelada'
+            END AS v_estado,
+            total_medicos + 1 + ((random() * (total_pacientes - 1))::INT) AS v_pac,
+            1 + ((random() * (total_medicos - 1))::INT) AS v_med
+        FROM generate_series(1, total_citas) AS i
+    ) sub;
 
     -- ========== DIAGNOSTICO (15000) ==========
-    INSERT INTO DIAGNOSTICO (Descripcion, Observaciones, Tipo_Procedimiento, ID_Cita, ID_Tipo_Diagnostico)
-    SELECT
-        descripciones[1 + (i % array_length(descripciones, 1))],
-        observaciones[1 + (i % array_length(observaciones, 1))],
-        procedimientos[1 + (i % array_length(procedimientos, 1))],
-        1 + ((i - 1) % total_citas),
-        1 + (i % total_tipos_diag)
-    FROM generate_series(1, total_diagnosticos) AS i;
+    -- Distribucion ponderada: Clinico/Imagen/Laboratorio son los mas comunes, Emergencia/Ambulatorio los mas raros
+    FOR idx IN 1..total_diagnosticos LOOP
+        v_rand := random() * total_peso_diag;
+        v_acum := 0;
+        v_tipo := 1;
+        FOR jdx IN 1..total_tipos_diag LOOP
+            v_acum := v_acum + pesos_diag[jdx];
+            IF v_rand <= v_acum THEN
+                v_tipo := jdx;
+                EXIT;
+            END IF;
+        END LOOP;
+
+        INSERT INTO DIAGNOSTICO (Descripcion, Observaciones, Tipo_Procedimiento, ID_Cita, ID_Tipo_Diagnostico)
+        VALUES (
+            descripciones[1 + (idx % array_length(descripciones, 1))],
+            observaciones[1 + (idx % array_length(observaciones, 1))],
+            procedimientos[1 + (idx % array_length(procedimientos, 1))],
+            1 + ((idx - 1) % total_citas),
+            v_tipo
+        );
+    END LOOP;
 
     -- ========== RECETA (7440) ==========
     INSERT INTO RECETA (Medicamentos, Indicaciones, ID_Diagnostico)

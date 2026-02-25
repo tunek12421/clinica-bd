@@ -34,16 +34,32 @@ echo "      OK - Ambos contenedores corriendo"
 # -------------------------------------------------------------------
 # PASO 2: Limpiar tablas DW
 # -------------------------------------------------------------------
-echo -e "${YELLOW}[2/5] Limpiando tablas DW...${NC}"
+echo -e "${YELLOW}[2/6] Limpiando tablas DW...${NC}"
 docker compose exec -T dw psql -U dw_user -d dw_clinica -c "
     TRUNCATE TABLE fact_atenciones, dim_paciente, dim_medico RESTART IDENTITY CASCADE;
 "
 echo "      OK - Tablas limpiadas"
 
 # -------------------------------------------------------------------
+# PASO 3: Verificar dim_sucursal
+# -------------------------------------------------------------------
+echo -e "${YELLOW}[3/6] Verificando dim_sucursal...${NC}"
+SUC_COUNT=$(docker compose exec -T dw psql -U dw_user -d dw_clinica -tAc "SELECT COUNT(*) FROM dim_sucursal;")
+if [ "$SUC_COUNT" -eq 0 ]; then
+    echo "      Insertando sucursales..."
+    docker compose exec -T dw psql -U dw_user -d dw_clinica -c "
+        INSERT INTO dim_sucursal (nombre, host) VALUES
+            ('Grupo 3', 'localhost:5433 (PostgreSQL - clinica_db)'),
+            ('Grupo 1', 'aws-0-us-west-2.pooler.supabase.com (Supabase)'),
+            ('Grupo 6', 'hospital.db (SQLite)');
+    "
+fi
+echo "      OK - dim_sucursal con $SUC_COUNT sucursales"
+
+# -------------------------------------------------------------------
 # PASO 3: Cargar dim_paciente
 # -------------------------------------------------------------------
-echo -e "${YELLOW}[3/5] Cargando dim_paciente...${NC}"
+echo -e "${YELLOW}[4/6] Cargando dim_paciente...${NC}"
 
 docker compose exec -T db psql -U clinica_user -d clinica_db -c "
     COPY (
@@ -75,13 +91,20 @@ docker cp /tmp/dw_dim_paciente.csv "$(docker compose ps -q dw)":/tmp/dw_dim_paci
 
 docker compose exec -T dw psql -U dw_user -d dw_clinica <<'EOSQL'
 \copy dim_paciente(ci, nombre, fecha_nacimiento, sexo, direccion, telefono, zona, ciudad, grupo_origen) FROM '/tmp/dw_dim_paciente.csv' WITH (FORMAT csv);
+
+-- Asignar sucursal_key según grupo_origen
+UPDATE dim_paciente SET sucursal_key = CASE grupo_origen
+    WHEN 'G3' THEN 1
+    WHEN 'G1' THEN 2
+    WHEN 'G6' THEN 3
+END;
 EOSQL
-echo "      Cargados: $PAC_COUNT pacientes en dim_paciente"
+echo "      Cargados: $PAC_COUNT pacientes en dim_paciente (con sucursal_key)"
 
 # -------------------------------------------------------------------
 # PASO 4: Cargar dim_medico
 # -------------------------------------------------------------------
-echo -e "${YELLOW}[4/5] Cargando dim_medico...${NC}"
+echo -e "${YELLOW}[5/6] Cargando dim_medico...${NC}"
 
 docker compose exec -T db psql -U clinica_user -d clinica_db -c "
     COPY (
@@ -120,7 +143,7 @@ echo "      Cargados: $MED_COUNT medicos en dim_medico"
 # -------------------------------------------------------------------
 # PASO 5: Cargar fact_atenciones
 # -------------------------------------------------------------------
-echo -e "${YELLOW}[5/5] Cargando fact_atenciones...${NC}"
+echo -e "${YELLOW}[6/6] Cargando fact_atenciones...${NC}"
 
 docker compose exec -T db psql -U clinica_user -d clinica_db -c "
     COPY (
@@ -214,7 +237,9 @@ echo -e "${GREEN}============================================${NC}"
 echo -e "${GREEN}CARGA COMPLETADA - VERIFICACION${NC}"
 echo -e "${GREEN}============================================${NC}"
 docker compose exec -T dw psql -U dw_user -d dw_clinica -c "
-    SELECT 'dim_paciente' AS tabla, COUNT(*) AS registros FROM dim_paciente
+    SELECT 'dim_sucursal' AS tabla, COUNT(*) AS registros FROM dim_sucursal
+    UNION ALL
+    SELECT 'dim_paciente', COUNT(*) FROM dim_paciente
     UNION ALL
     SELECT 'dim_medico', COUNT(*) FROM dim_medico
     UNION ALL

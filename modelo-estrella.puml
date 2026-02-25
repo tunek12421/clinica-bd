@@ -17,9 +17,17 @@ skinparam class {
 ' DIMENSIONES
 ' ========================
 
+entity "dim_sucursal" <<dim>> {
+    **PK sucursal_key** : SERIAL
+    --
+    nombre : VARCHAR(100)
+    host : VARCHAR(200)
+}
+
 entity "dim_paciente" <<dim>> {
     **PK paciente_key** : SERIAL
     --
+    *FK sucursal_key : INT
     ci : VARCHAR(20)
     nombre : VARCHAR(150)
     fecha_nacimiento : DATE
@@ -74,6 +82,7 @@ entity "fact_atenciones" <<fact>> {
 ' RELACIONES
 ' ========================
 
+dim_sucursal ||--o{ dim_paciente
 dim_paciente ||--o{ fact_atenciones
 dim_medico ||--o{ fact_atenciones
 

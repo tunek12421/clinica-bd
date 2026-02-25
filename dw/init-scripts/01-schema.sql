@@ -2,7 +2,7 @@
 -- DATA WAREHOUSE - ESQUEMA ESTRELLA: Clínica
 -- ============================================================================
 -- Estructura:
---   dim_paciente ── fact_atenciones ── dim_medico
+--   dim_sucursal ── dim_paciente ── fact_atenciones ── dim_medico
 --
 -- fact_atenciones combina datos de CITA_MEDICA + DIAGNOSTICO + TIPO_DIAGNOSTICO
 -- Cada fila = un evento de diagnóstico dentro de una cita
@@ -12,8 +12,20 @@
 -- DIMENSIONES
 -- ========================
 
+CREATE TABLE dim_sucursal (
+    sucursal_key     SERIAL PRIMARY KEY,
+    nombre           VARCHAR(100) NOT NULL,
+    host             VARCHAR(200) NOT NULL
+);
+
+INSERT INTO dim_sucursal (nombre, host) VALUES
+    ('Grupo 3', 'localhost:5433 (PostgreSQL - clinica_db)'),
+    ('Grupo 1', 'aws-0-us-west-2.pooler.supabase.com (Supabase)'),
+    ('Grupo 6', 'hospital.db (SQLite)');
+
 CREATE TABLE dim_paciente (
     paciente_key     SERIAL PRIMARY KEY,
+    sucursal_key     INT REFERENCES dim_sucursal(sucursal_key),
     ci               VARCHAR(20) NOT NULL,
     nombre           VARCHAR(150) NOT NULL,
     fecha_nacimiento DATE,

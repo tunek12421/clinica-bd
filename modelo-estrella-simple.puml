@@ -13,11 +13,13 @@ skinparam rectangle {
     FontSize 14
 }
 
+rectangle "dim_sucursal" <<dim>> as ds
 rectangle "dim_paciente" <<dim>> as dp
 rectangle "dim_medico" <<dim>> as dm
 
 rectangle "fact_atenciones" <<fact>> as fa
 
+ds --> dp
 dp --> fa
 dm --> fa
 

@@ -1,0 +1,80 @@
+@startuml modelo-estrella
+
+title Modelo Estrella — Data Warehouse Clínica
+
+skinparam linetype ortho
+skinparam classFontSize 12
+skinparam classAttributeFontSize 11
+
+skinparam class {
+    BackgroundColor<<fact>> #FFD700
+    BackgroundColor<<dim>> #87CEEB
+    BorderColor #333333
+    FontColor #000000
+}
+
+' ========================
+' DIMENSIONES
+' ========================
+
+entity "dim_paciente" <<dim>> {
+    **PK paciente_key** : SERIAL
+    --
+    ci : VARCHAR(20)
+    nombre : VARCHAR(150)
+    fecha_nacimiento : DATE
+    sexo : CHAR(1)
+    direccion : VARCHAR(255)
+    telefono : VARCHAR(20)
+    zona : VARCHAR(100)
+    ciudad : VARCHAR(100)
+    grupo_origen : VARCHAR(10)
+}
+
+entity "dim_medico" <<dim>> {
+    **PK medico_key** : SERIAL
+    --
+    ci : VARCHAR(20)
+    nombre : VARCHAR(150)
+    matricula : VARCHAR(50)
+    sexo : CHAR(1)
+    especialidad : VARCHAR(100)
+    zona : VARCHAR(100)
+    ciudad : VARCHAR(100)
+    grupo_origen : VARCHAR(10)
+}
+
+' ========================
+' TABLA DE HECHOS
+' ========================
+
+entity "fact_atenciones" <<fact>> {
+    **PK atencion_key** : SERIAL
+    --
+    *FK paciente_key : INT
+    *FK medico_key : INT
+    --
+    fecha_cita : DATE
+    anio : INT
+    mes : INT
+    trimestre : INT
+    dia_semana : VARCHAR(15)
+    hora : TIME
+    estado : VARCHAR(50)
+    numero_turno : INT
+    descripcion : TEXT
+    observaciones : TEXT
+    tipo_procedimiento : VARCHAR(100)
+    tipo_diagnostico : VARCHAR(100)
+    categoria : VARCHAR(100)
+    grupo_origen : VARCHAR(10)
+}
+
+' ========================
+' RELACIONES
+' ========================
+
+dim_paciente ||--o{ fact_atenciones
+dim_medico ||--o{ fact_atenciones
+
+@enduml

@@ -1,0 +1,213 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="UTF-8">
+<title>Modelo Constelación — DW Clínica</title>
+<style>
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  body {
+    background: #1a1a2e;
+    font-family: 'Segoe UI', Arial, sans-serif;
+    display: flex;
+    justify-content: center;
+    align-items: center;
+    min-height: 100vh;
+    color: #fff;
+  }
+  h1 {
+    position: absolute;
+    top: 20px;
+    text-align: center;
+    width: 100%;
+    font-size: 22px;
+    color: #e0e0e0;
+    letter-spacing: 1px;
+  }
+  .canvas {
+    position: relative;
+    width: 1100px;
+    height: 650px;
+  }
+  .box {
+    position: absolute;
+    padding: 14px 22px;
+    border-radius: 10px;
+    font-size: 15px;
+    font-weight: 600;
+    text-align: center;
+    box-shadow: 0 4px 15px rgba(0,0,0,0.4);
+    z-index: 2;
+    min-width: 160px;
+  }
+  .fact {
+    background: linear-gradient(135deg, #f6d365, #fda085);
+    color: #333;
+    border: 2px solid #e8a030;
+  }
+  .dim {
+    background: linear-gradient(135deg, #667eea, #764ba2);
+    color: #fff;
+    border: 2px solid #5a6fd6;
+  }
+  .label {
+    font-size: 11px;
+    font-weight: 400;
+    opacity: 0.8;
+    display: block;
+    margin-bottom: 4px;
+    text-transform: uppercase;
+    letter-spacing: 1px;
+  }
+  svg {
+    position: absolute;
+    top: 0;
+    left: 0;
+    width: 100%;
+    height: 100%;
+    z-index: 1;
+  }
+  svg line {
+    stroke-width: 2;
+    stroke-linecap: round;
+  }
+  .line-dim { stroke: #667eea; opacity: 0.5; }
+  .line-fact { stroke: #fda085; opacity: 0.8; stroke-width: 3; stroke-dasharray: 8,4; }
+  .legend {
+    position: absolute;
+    bottom: 15px;
+    left: 50%;
+    transform: translateX(-50%);
+    display: flex;
+    gap: 30px;
+    font-size: 13px;
+    color: #aaa;
+  }
+  .legend-item {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+  }
+  .legend-color {
+    width: 16px;
+    height: 16px;
+    border-radius: 4px;
+  }
+  .chain-label {
+    position: absolute;
+    font-size: 11px;
+    color: #fda085;
+    font-style: italic;
+    z-index: 3;
+  }
+</style>
+</head>
+<body>
+
+<h1>Modelo Constelación — Data Warehouse Clínica</h1>
+
+<div class="canvas">
+  <svg></svg>
+
+  <!-- DIMENSIONES -->
+  <div class="box dim" style="left:20px; top:80px;" id="dt">
+    <span class="label">Dimensión</span>
+    dim_tiempo
+  </div>
+  <div class="box dim" style="left:20px; top:200px;" id="dp">
+    <span class="label">Dimensión</span>
+    dim_paciente
+  </div>
+  <div class="box dim" style="left:20px; top:320px;" id="dm">
+    <span class="label">Dimensión</span>
+    dim_medico
+  </div>
+  <div class="box dim" style="left:20px; top:440px;" id="dtd">
+    <span class="label">Dimensión</span>
+    dim_tipo_diagnostico
+  </div>
+
+  <!-- FACTS -->
+  <div class="box fact" style="left:400px; top:120px;" id="fc">
+    <span class="label">Hecho</span>
+    fact_citas
+  </div>
+  <div class="box fact" style="left:650px; top:270px;" id="fd">
+    <span class="label">Hecho</span>
+    fact_diagnosticos
+  </div>
+  <div class="box fact" style="left:900px; top:420px;" id="fr">
+    <span class="label">Hecho</span>
+    fact_recetas
+  </div>
+
+  <!-- Labels cadena facts -->
+  <span class="chain-label" style="left:555px; top:215px;">cita_key</span>
+  <span class="chain-label" style="left:810px; top:365px;">diagnostico_key</span>
+
+  <!-- LEYENDA -->
+  <div class="legend">
+    <div class="legend-item">
+      <div class="legend-color" style="background: linear-gradient(135deg, #667eea, #764ba2);"></div>
+      Dimensión (compartida)
+    </div>
+    <div class="legend-item">
+      <div class="legend-color" style="background: linear-gradient(135deg, #f6d365, #fda085);"></div>
+      Tabla de hechos
+    </div>
+    <div class="legend-item">
+      <svg width="30" height="16"><line x1="0" y1="8" x2="30" y2="8" stroke="#fda085" stroke-width="3" stroke-dasharray="6,3"/></svg>
+      Cadena entre facts
+    </div>
+  </div>
+</div>
+
+<script>
+function center(el) {
+  const r = el.getBoundingClientRect();
+  const c = document.querySelector('.canvas').getBoundingClientRect();
+  return {
+    x: r.left - c.left + r.width / 2,
+    y: r.top - c.top + r.height / 2,
+    right: r.left - c.left + r.width,
+    left: r.left - c.left,
+    top: r.top - c.top + r.height / 2
+  };
+}
+
+const svg = document.querySelector('svg');
+
+function line(fromId, toId, cls) {
+  const f = center(document.getElementById(fromId));
+  const t = center(document.getElementById(toId));
+  const l = document.createElementNS('http://www.w3.org/2000/svg', 'line');
+  l.setAttribute('x1', f.right);
+  l.setAttribute('y1', f.y);
+  l.setAttribute('x2', t.left);
+  l.setAttribute('y2', t.y);
+  l.setAttribute('class', cls);
+  svg.appendChild(l);
+}
+
+// Dimensiones → fact_citas
+line('dt', 'fc', 'line-dim');
+line('dp', 'fc', 'line-dim');
+line('dm', 'fc', 'line-dim');
+
+// Dimensiones → fact_diagnosticos
+line('dt', 'fd', 'line-dim');
+line('dp', 'fd', 'line-dim');
+line('dm', 'fd', 'line-dim');
+line('dtd', 'fd', 'line-dim');
+
+// Dimensiones → fact_recetas
+line('dt', 'fr', 'line-dim');
+line('dp', 'fr', 'line-dim');
+line('dm', 'fr', 'line-dim');
+
+// Cadena facts
+line('fc', 'fd', 'line-fact');
+line('fd', 'fr', 'line-fact');
+</script>
+
+</body>
+</html>

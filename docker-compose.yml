@@ -12,5 +12,19 @@ services:
       - pgdata:/var/lib/postgresql/data
       - ./init-scripts:/docker-entrypoint-initdb.d
 
+  dw:
+    image: postgres:17
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: dw_user
+      POSTGRES_PASSWORD: dw_pass
+      POSTGRES_DB: dw_clinica
+    ports:
+      - "5434:5432"
+    volumes:
+      - dwdata:/var/lib/postgresql/data
+      - ./dw/init-scripts:/docker-entrypoint-initdb.d
+
 volumes:
   pgdata:
+  dwdata:

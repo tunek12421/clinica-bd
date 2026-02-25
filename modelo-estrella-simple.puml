@@ -1,0 +1,24 @@
+@startuml modelo-estrella-simple
+
+title Modelo Estrella — Data Warehouse Clínica (simplificado)
+
+left to right direction
+
+skinparam rectangle {
+    BackgroundColor<<fact>> #FFD700
+    BackgroundColor<<dim>> #87CEEB
+    BorderColor #333333
+    FontColor #000000
+    RoundCorner 10
+    FontSize 14
+}
+
+rectangle "dim_paciente" <<dim>> as dp
+rectangle "dim_medico" <<dim>> as dm
+
+rectangle "fact_atenciones" <<fact>> as fa
+
+dp --> fa
+dm --> fa
+
+@enduml

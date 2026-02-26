@@ -2,7 +2,7 @@
 # ============================================================================
 # ETL: Carga del Data Warehouse (Estrella Simple)
 # ============================================================================
-# Lee de clinica_db (transaccional) y carga en dw_clinica (DW)
+# Lee de clinica_db (operacional, puerto 5432) y carga en clinica_db (DW, puerto 5434)
 #
 # Uso: bash dw/etl-load.sh
 # Prerequisito: ambos contenedores db y dw deben estar corriendo
@@ -35,7 +35,7 @@ echo "      OK - Ambos contenedores corriendo"
 # PASO 2: Limpiar tablas DW
 # -------------------------------------------------------------------
 echo -e "${YELLOW}[2/6] Limpiando tablas DW...${NC}"
-docker compose exec -T dw psql -U dw_user -d dw_clinica -c "
+docker compose exec -T dw psql -U clinica_user -d clinica_db -c "
     TRUNCATE TABLE fact_atenciones, dim_paciente, dim_medico RESTART IDENTITY CASCADE;
 "
 echo "      OK - Tablas limpiadas"
@@ -44,14 +44,14 @@ echo "      OK - Tablas limpiadas"
 # PASO 3: Verificar dim_sucursal
 # -------------------------------------------------------------------
 echo -e "${YELLOW}[3/6] Verificando dim_sucursal...${NC}"
-SUC_COUNT=$(docker compose exec -T dw psql -U dw_user -d dw_clinica -tAc "SELECT COUNT(*) FROM dim_sucursal;")
+SUC_COUNT=$(docker compose exec -T dw psql -U clinica_user -d clinica_db -tAc "SELECT COUNT(*) FROM dim_sucursal;")
 if [ "$SUC_COUNT" -eq 0 ]; then
     echo "      Insertando sucursales..."
-    docker compose exec -T dw psql -U dw_user -d dw_clinica -c "
+    docker compose exec -T dw psql -U clinica_user -d clinica_db -c "
         INSERT INTO dim_sucursal (nombre, host) VALUES
             ('Grupo 3', 'localhost:5433 (PostgreSQL - clinica_db)'),
             ('Grupo 1', 'aws-0-us-west-2.pooler.supabase.com (Supabase)'),
-            ('Grupo 6', 'hospital.db (SQLite)');
+            ('Grupo 6', 'PostgreSQL 17 (dump hospital_db)');
     "
 fi
 echo "      OK - dim_sucursal con $SUC_COUNT sucursales"
@@ -89,7 +89,7 @@ echo "      Extraidos: $PAC_COUNT pacientes"
 
 docker cp /tmp/dw_dim_paciente.csv "$(docker compose ps -q dw)":/tmp/dw_dim_paciente.csv
 
-docker compose exec -T dw psql -U dw_user -d dw_clinica <<'EOSQL'
+docker compose exec -T dw psql -U clinica_user -d clinica_db <<'EOSQL'
 \copy dim_paciente(ci, nombre, fecha_nacimiento, sexo, direccion, telefono, zona, ciudad, grupo_origen) FROM '/tmp/dw_dim_paciente.csv' WITH (FORMAT csv);
 
 -- Asignar sucursal_key según grupo_origen
@@ -135,7 +135,7 @@ echo "      Extraidos: $MED_COUNT medicos"
 
 docker cp /tmp/dw_dim_medico.csv "$(docker compose ps -q dw)":/tmp/dw_dim_medico.csv
 
-docker compose exec -T dw psql -U dw_user -d dw_clinica <<'EOSQL'
+docker compose exec -T dw psql -U clinica_user -d clinica_db <<'EOSQL'
 \copy dim_medico(ci, nombre, matricula, sexo, especialidad, zona, ciudad, grupo_origen) FROM '/tmp/dw_dim_medico.csv' WITH (FORMAT csv);
 EOSQL
 echo "      Cargados: $MED_COUNT medicos en dim_medico"
@@ -182,7 +182,7 @@ echo "      Extraidos: $FACT_COUNT registros de hechos"
 
 docker cp /tmp/dw_fact_raw.csv "$(docker compose ps -q dw)":/tmp/dw_fact_raw.csv
 
-docker compose exec -T dw psql -U dw_user -d dw_clinica <<'EOSQL'
+docker compose exec -T dw psql -U clinica_user -d clinica_db <<'EOSQL'
 BEGIN;
 
 CREATE TEMP TABLE stg_fact (
@@ -236,7 +236,7 @@ echo ""
 echo -e "${GREEN}============================================${NC}"
 echo -e "${GREEN}CARGA COMPLETADA - VERIFICACION${NC}"
 echo -e "${GREEN}============================================${NC}"
-docker compose exec -T dw psql -U dw_user -d dw_clinica -c "
+docker compose exec -T dw psql -U clinica_user -d clinica_db -c "
     SELECT 'dim_sucursal' AS tabla, COUNT(*) AS registros FROM dim_sucursal
     UNION ALL
     SELECT 'dim_paciente', COUNT(*) FROM dim_paciente
@@ -249,7 +249,7 @@ docker compose exec -T dw psql -U dw_user -d dw_clinica -c "
 
 echo ""
 echo "Distribución por grupo_origen:"
-docker compose exec -T dw psql -U dw_user -d dw_clinica -c "
+docker compose exec -T dw psql -U clinica_user -d clinica_db -c "
     SELECT grupo_origen, COUNT(*) AS registros
     FROM fact_atenciones
     GROUP BY grupo_origen

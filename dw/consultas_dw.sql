@@ -1,15 +1,14 @@
 -- ============================================================================
 -- CONSULTAS DE INTELIGENCIA DE NEGOCIOS — DATA WAREHOUSE (modelo estrella)
 -- ============================================================================
--- Conexión: psql -h localhost -p 5434 -U dw_user -d dw_clinica
+-- Conexión: psql -h localhost -p 5434 -U clinica_user -d clinica_db
 -- ============================================================================
 
 
 -- ============================================================================
--- CONSULTA 1: Qué área atiende más pacientes
+-- CONSULTA 1: ¿Qué área/especialidad atiende más pacientes?
 -- ============================================================================
--- Original: JOIN CITA_MEDICA → PERSONA → ESPECIALIDAD (3 tablas)
--- DW:       La especialidad ya está desnormalizada en dim_medico
+-- DW: La especialidad ya está desnormalizada en dim_medico (1 JOIN)
 -- ============================================================================
 
 SELECT
@@ -22,10 +21,9 @@ ORDER BY total_atenciones DESC;
 
 
 -- ============================================================================
--- CONSULTA 2: Qué fechas se atienden más pacientes
+-- CONSULTA 2: ¿En qué fechas se atienden más pacientes?
 -- ============================================================================
--- Original: GROUP BY Fecha_Cita sobre CITA_MEDICA
--- DW:       fecha_cita ya está en la fact, no necesita JOIN
+-- DW: fecha_cita ya está en la fact, no necesita JOIN
 -- ============================================================================
 
 SELECT
@@ -37,10 +35,9 @@ ORDER BY total_atenciones DESC;
 
 
 -- ============================================================================
--- CONSULTA 3: Qué enfermedad se atiende más
+-- CONSULTA 3: ¿Qué enfermedad/diagnóstico se atiende con más frecuencia?
 -- ============================================================================
--- Original: JOIN DIAGNOSTICO → TIPO_DIAGNOSTICO (2 tablas)
--- DW:       tipo_diagnostico y categoria están desnormalizados en la fact
+-- DW: tipo_diagnostico y categoria están desnormalizados en la fact
 -- ============================================================================
 
 SELECT
@@ -53,10 +50,9 @@ ORDER BY total DESC;
 
 
 -- ============================================================================
--- CONSULTA 4: Diferencia de clientes externos vs internos por mes
+-- CONSULTA 4: ¿Cuál es la diferencia de clientes externos vs internos por mes?
 -- ============================================================================
--- Original: JOIN CITA_MEDICA → PERSONA, filtrando por ID_Especialidad
--- DW:       Un paciente "interno" es alguien que también está en dim_medico
+-- DW: Un paciente "interno" es alguien que también está en dim_medico
 -- ============================================================================
 
 SELECT
@@ -74,10 +70,9 @@ ORDER BY fa.anio, fa.mes;
 
 
 -- ============================================================================
--- CONSULTA 5: Pacientes atendidos por especialidad, por gestión
+-- CONSULTA 5: ¿Cuántos pacientes se atienden por especialidad y gestión?
 -- ============================================================================
--- Original: JOIN CITA_MEDICA → PERSONA → ESPECIALIDAD (3 tablas)
--- DW:       Solo 1 JOIN a dim_medico (especialidad desnormalizada)
+-- DW: Solo 1 JOIN a dim_medico (especialidad desnormalizada)
 -- ============================================================================
 
 SELECT
@@ -91,10 +86,9 @@ ORDER BY fa.anio, pacientes_atendidos DESC;
 
 
 -- ============================================================================
--- CONSULTA 6: Especialidades que diagnosticaron una misma enfermedad, por gestión
+-- CONSULTA 6: ¿Qué especialidades diagnosticaron una misma enfermedad?
 -- ============================================================================
--- Original: JOIN DIAGNOSTICO → CITA_MEDICA → PERSONA → ESPECIALIDAD (4 tablas)
--- DW:       Solo 1 JOIN a dim_medico
+-- DW: Solo 1 JOIN a dim_medico
 -- ============================================================================
 
 SELECT
@@ -108,3 +102,107 @@ JOIN dim_medico dm ON dm.medico_key = fa.medico_key
 GROUP BY fa.anio, fa.descripcion
 HAVING COUNT(DISTINCT dm.especialidad) > 1
 ORDER BY fa.anio, num_especialidades DESC, total_diagnosticos DESC;
+
+
+-- ============================================================================
+-- CONSULTA 7: ¿Cuántas atenciones aporta cada sucursal/grupo?
+-- ============================================================================
+-- DW: JOIN dim_paciente → dim_sucursal (snowflake)
+-- ============================================================================
+
+SELECT
+    ds.nombre        AS sucursal,
+    ds.host,
+    COUNT(*)         AS total_atenciones
+FROM fact_atenciones fa
+JOIN dim_paciente dp  ON dp.paciente_key = fa.paciente_key
+JOIN dim_sucursal ds  ON ds.sucursal_key = dp.sucursal_key
+GROUP BY ds.nombre, ds.host
+ORDER BY total_atenciones DESC;
+
+
+-- ============================================================================
+-- CONSULTA 8: ¿Qué especialidad atiende más pacientes en cada sucursal?
+-- ============================================================================
+-- DW: Combina dim_medico (especialidad) con dim_sucursal (origen)
+-- ============================================================================
+
+SELECT
+    ds.nombre        AS sucursal,
+    dm.especialidad,
+    COUNT(*)         AS total_atenciones
+FROM fact_atenciones fa
+JOIN dim_paciente dp  ON dp.paciente_key = fa.paciente_key
+JOIN dim_sucursal ds  ON ds.sucursal_key = dp.sucursal_key
+JOIN dim_medico dm    ON dm.medico_key = fa.medico_key
+GROUP BY ds.nombre, dm.especialidad
+ORDER BY ds.nombre, total_atenciones DESC;
+
+
+-- ============================================================================
+-- CONSULTA 9: ¿Cuál es el diagnóstico más frecuente por sucursal?
+-- ============================================================================
+-- DW: tipo_diagnostico desnormalizado en fact + dim_sucursal via dim_paciente
+-- ============================================================================
+
+SELECT
+    ds.nombre            AS sucursal,
+    fa.tipo_diagnostico,
+    fa.categoria,
+    COUNT(*)             AS total
+FROM fact_atenciones fa
+JOIN dim_paciente dp  ON dp.paciente_key = fa.paciente_key
+JOIN dim_sucursal ds  ON ds.sucursal_key = dp.sucursal_key
+GROUP BY ds.nombre, fa.tipo_diagnostico, fa.categoria
+ORDER BY ds.nombre, total DESC;
+
+
+-- ============================================================================
+-- CONSULTA 10: ¿Cómo se distribuyen las atenciones por mes y sucursal?
+-- ============================================================================
+-- DW: Comparación temporal entre fuentes de datos
+-- ============================================================================
+
+SELECT
+    fa.anio              AS gestion,
+    fa.mes,
+    ds.nombre            AS sucursal,
+    COUNT(*)             AS total_atenciones
+FROM fact_atenciones fa
+JOIN dim_paciente dp  ON dp.paciente_key = fa.paciente_key
+JOIN dim_sucursal ds  ON ds.sucursal_key = dp.sucursal_key
+GROUP BY fa.anio, fa.mes, ds.nombre
+ORDER BY fa.anio, fa.mes, ds.nombre;
+
+
+-- ============================================================================
+-- CONSULTA 11: ¿Cuántos pacientes únicos tiene cada sucursal?
+-- ============================================================================
+-- DW: Conteo directo sobre dim_paciente agrupado por sucursal
+-- ============================================================================
+
+SELECT
+    ds.nombre            AS sucursal,
+    COUNT(*)             AS total_pacientes
+FROM dim_paciente dp
+JOIN dim_sucursal ds ON ds.sucursal_key = dp.sucursal_key
+GROUP BY ds.nombre
+ORDER BY total_pacientes DESC;
+
+
+-- ============================================================================
+-- CONSULTA 12: ¿Cuántos médicos hay por sucursal y especialidad?
+-- ============================================================================
+-- DW: Cruza dim_medico con dim_sucursal via fact_atenciones
+-- ============================================================================
+
+SELECT
+    ds.nombre            AS sucursal,
+    dm.especialidad,
+    COUNT(DISTINCT dm.medico_key) AS total_medicos
+FROM fact_atenciones fa
+JOIN dim_medico dm    ON dm.medico_key = fa.medico_key
+JOIN dim_paciente dp  ON dp.paciente_key = fa.paciente_key
+JOIN dim_sucursal ds  ON ds.sucursal_key = dp.sucursal_key
+GROUP BY ds.nombre, dm.especialidad
+ORDER BY ds.nombre, total_medicos DESC;

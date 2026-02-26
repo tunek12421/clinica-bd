@@ -16,9 +16,9 @@ services:
     image: postgres:17
     restart: unless-stopped
     environment:
-      POSTGRES_USER: dw_user
-      POSTGRES_PASSWORD: dw_pass
-      POSTGRES_DB: dw_clinica
+      POSTGRES_USER: clinica_user
+      POSTGRES_PASSWORD: clinica_pass
+      POSTGRES_DB: clinica_db
     ports:
       - "5434:5432"
     volumes:

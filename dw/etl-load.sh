@@ -51,7 +51,8 @@ if [ "$SUC_COUNT" -eq 0 ]; then
         INSERT INTO dim_sucursal (nombre, host) VALUES
             ('Grupo 3', 'localhost:5433 (PostgreSQL - clinica_db)'),
             ('Grupo 1', 'aws-0-us-west-2.pooler.supabase.com (Supabase)'),
-            ('Grupo 6', 'PostgreSQL 17 (dump hospital_db)');
+            ('Grupo 6', 'PostgreSQL 17 (dump hospital_db)'),
+            ('Grupo 4', 'ep-curly-snow-a8psiq7k-pooler.eastus2.azure.neon.tech (Neon)');
     "
 fi
 echo "      OK - dim_sucursal con $SUC_COUNT sucursales"
@@ -74,6 +75,7 @@ docker compose exec -T db psql -U clinica_user -d clinica_db -c "
             z.Ciudad,
             CASE
                 WHEN p.CI LIKE 'G1-%' THEN 'G1'
+                WHEN p.CI LIKE 'G4-%' THEN 'G4'
                 WHEN p.CI LIKE 'G6-%' THEN 'G6'
                 ELSE 'G3'
             END
@@ -97,6 +99,7 @@ UPDATE dim_paciente SET sucursal_key = CASE grupo_origen
     WHEN 'G3' THEN 1
     WHEN 'G1' THEN 2
     WHEN 'G6' THEN 3
+    WHEN 'G4' THEN 4
 END;
 EOSQL
 echo "      Cargados: $PAC_COUNT pacientes en dim_paciente (con sucursal_key)"
@@ -118,6 +121,7 @@ docker compose exec -T db psql -U clinica_user -d clinica_db -c "
             z.Ciudad,
             CASE
                 WHEN p.CI LIKE 'G1-%' THEN 'G1'
+                WHEN p.CI LIKE 'G4-%' THEN 'G4'
                 WHEN p.CI LIKE 'G6-%' THEN 'G6'
                 ELSE 'G3'
             END
@@ -165,6 +169,7 @@ docker compose exec -T db psql -U clinica_user -d clinica_db -c "
             td.Categoria,
             CASE
                 WHEN pac.CI LIKE 'G1-%' THEN 'G1'
+                WHEN pac.CI LIKE 'G4-%' THEN 'G4'
                 WHEN pac.CI LIKE 'G6-%' THEN 'G6'
                 ELSE 'G3'
             END

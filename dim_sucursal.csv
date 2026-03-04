@@ -1,0 +1,4 @@
+sucursal_key,nombre,host
+1,Grupo 3,localhost:5433 (PostgreSQL - clinica_db)
+2,Grupo 1,aws-0-us-west-2.pooler.supabase.com (Supabase)
+3,Grupo 6,PostgreSQL 17 (dump hospital_db)

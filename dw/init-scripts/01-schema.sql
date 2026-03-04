@@ -21,7 +21,8 @@ CREATE TABLE dim_sucursal (
 INSERT INTO dim_sucursal (nombre, host) VALUES
     ('Grupo 3', 'localhost:5433 (PostgreSQL - clinica_db)'),
     ('Grupo 1', 'aws-0-us-west-2.pooler.supabase.com (Supabase)'),
-    ('Grupo 6', 'PostgreSQL 17 (dump hospital_db)');
+    ('Grupo 6', 'PostgreSQL 17 (dump hospital_db)'),
+    ('Grupo 4', 'ep-curly-snow-a8psiq7k-pooler.eastus2.azure.neon.tech (Neon)');
 
 CREATE TABLE dim_paciente (
     paciente_key     SERIAL PRIMARY KEY,

@@ -129,7 +129,77 @@ add_table(
     ]
 )
 
-doc.add_heading('1.2. Definición del esquema (SQL)', level=2)
+doc.add_heading('1.2. Tipo de conexión a las fuentes de extracción', level=2)
+add_table(
+    ['Fuente', 'Tipo de conexión', 'Método'],
+    [
+        ['Grupo 3 (propio)', 'Directa (localhost)', 'Consulta SQL local al contenedor Docker (puerto 5432)'],
+        ['Grupo 1', 'Descarga CSV', 'Conexión psql a Supabase → \\copy TO STDOUT → CSV → importación staging'],
+        ['Grupo 6', 'Backup (dump SQL)', 'Archivo dump PostgreSQL → conversión encoding → carga staging'],
+    ]
+)
+
+doc.add_heading('1.2.1. Proceso de extracción: Grupo 3 (Directa)', level=3)
+doc.add_paragraph(
+    'Los datos del Grupo 3 residen en la misma base de datos destino (clinica_db). '
+    'La carga al DW se realiza mediante consultas COPY directas:'
+)
+add_code(
+    "-- Extracción directa desde el contenedor 'db'\n"
+    "docker compose exec -T db psql -U clinica_user -d clinica_db -c \"\n"
+    "    COPY (\n"
+    "        SELECT p.CI, p.Nombre, p.Fecha_Nacimiento, ...\n"
+    "        FROM PERSONA p\n"
+    "        JOIN ZONA z ON z.ID_Zona = p.ID_Zona\n"
+    "        WHERE p.Matricula IS NULL\n"
+    "    ) TO STDOUT WITH (FORMAT csv)\n"
+    "\" > /tmp/dw_dim_paciente.csv"
+)
+
+doc.add_heading('1.2.2. Proceso de extracción: Grupo 1 (Descarga CSV)', level=3)
+doc.add_paragraph(
+    'Se conecta al servidor Supabase del Grupo 1 usando psql con cadena de conexión PostgreSQL. '
+    'Se descargan 4 tablas a archivos CSV locales mediante \\copy TO STDOUT, '
+    'que luego se importan a tablas staging en nuestra base de datos:'
+)
+add_code(
+    "# Cadena de conexión al servidor remoto (Supabase)\n"
+    "G1_CONN=\"postgresql://usuario1.<host>:<pass>@<ip>:5432/postgres?sslmode=require\"\n\n"
+    "# Exportar cada tabla a CSV via consulta remota\n"
+    "docker compose exec -T db psql \"$G1_CONN\" -c \"\n"
+    "    \\copy (SELECT paciente_id, nombre, fecha_nacimiento, genero\n"
+    "           FROM pacientes ORDER BY paciente_id)\n"
+    "    TO STDOUT WITH (FORMAT csv, HEADER true)\n"
+    "\" > /tmp/etl_g1_csv/g1_pacientes.csv\n\n"
+    "# Se repite para: personal, atenciones, diagnosticos\n\n"
+    "# Copiar CSVs al contenedor e importar a tablas staging\n"
+    "docker cp g1_pacientes.csv <contenedor>:/tmp/g1_pacientes.csv\n"
+    "docker compose exec -T db psql -U clinica_user -d clinica_db \\\n"
+    "    < etl/grupo1/01-extract.sql  -- CREATE TABLE stg_g1_* + \\copy FROM"
+)
+
+doc.add_heading('1.2.3. Proceso de extracción: Grupo 6 (Backup SQL)', level=3)
+doc.add_paragraph(
+    'El Grupo 6 entrega sus datos como dump SQL (PostgreSQL 17, encoding WIN1252). '
+    'El proceso de carga sigue estos pasos:'
+)
+add_code(
+    "# 1. Crear tablas staging que replican el esquema G6\n"
+    "docker compose exec -T db psql -U clinica_user -d clinica_db \\\n"
+    "    < etl/grupo6_v2/01-extract.sql\n"
+    "    -- Crea: stg_g6_persona, stg_g6_paciente, stg_g6_personal,\n"
+    "    --       stg_g6_cita_medica, stg_g6_diagnostico, stg_g6_receta, ...\n\n"
+    "# 2. Conversión de encoding y renombrado de tablas\n"
+    "iconv -f WINDOWS-1252 -t UTF-8 hospital_db_inserts.sql | \\\n"
+    "    sed 's/INSERT INTO public\\.\\([a-z_]*\\)/INSERT INTO stg_g6_\\1/g' | \\\n"
+    "    grep '^INSERT INTO stg_g6_\\(persona\\|paciente\\|personal\\|...\\)' \\\n"
+    "    > g6v2_inserts_staging.sql\n\n"
+    "# 3. Ejecutar inserts en staging\n"
+    "docker compose exec -T db psql -U clinica_user -d clinica_db \\\n"
+    "    -f /tmp/g6v2_inserts_staging.sql"
+)
+
+doc.add_heading('1.3. Definición del esquema (SQL)', level=2)
 doc.add_paragraph('Creación de las tablas del DW:')
 add_code(
     'CREATE TABLE dim_sucursal (\n'
@@ -182,7 +252,7 @@ add_code(
     ');'
 )
 
-doc.add_heading('1.3. dim_sucursal', level=2)
+doc.add_heading('1.4. dim_sucursal', level=2)
 add_table(
     ['sucursal_key', 'nombre', 'host'],
     [
@@ -192,7 +262,7 @@ add_table(
     ]
 )
 
-doc.add_heading('1.4. Datos base: Solo Grupo 3', level=2)
+doc.add_heading('1.5. Datos base: Solo Grupo 3', level=2)
 doc.add_paragraph(
     'El punto de partida es el DW cargado únicamente con datos del Grupo 3 '
     '(nuestro modelo original).'
@@ -633,6 +703,45 @@ add_code(
     "FROM stg_fact sf\n"
     "JOIN dim_paciente dp ON dp.ci = sf.paciente_ci\n"
     "JOIN dim_medico dm ON dm.ci = sf.medico_ci;"
+)
+
+doc.add_page_break()
+
+# ============================================================
+# 5. CONCLUSIONES
+# ============================================================
+doc.add_heading('5. CONCLUSIONES', level=1)
+
+doc.add_paragraph(
+    'Se implementó un Data Warehouse con modelo estrella (snowflake parcial por dim_sucursal) '
+    'que consolida datos de tres fuentes heterogéneas en un esquema analítico unificado.'
+)
+
+doc.add_paragraph(
+    'El modelo consta de una tabla de hechos (fact_atenciones con 123,257 registros) '
+    'y tres dimensiones: dim_paciente (126,487), dim_medico (14,668) y dim_sucursal (3). '
+    'La dimensión sucursal permite segmentar y comparar métricas entre las fuentes de origen.'
+)
+
+doc.add_paragraph(
+    'Cada fuente presentó desafíos distintos de integración: '
+    'el Grupo 1 requirió mapeo de códigos CIE-10 a categorías diagnósticas y generación '
+    'de identificadores sintéticos; el Grupo 6 necesitó conversión de encoding (WIN1252 → UTF-8) '
+    'y remapeo de 24 especialidades a las 15 del esquema destino. '
+    'En ambos casos se utilizaron offsets de IDs para evitar colisiones y scripts de rollback '
+    'para garantizar la reversibilidad de cada carga.'
+)
+
+doc.add_paragraph(
+    'Los tres tipos de conexión utilizados (directa local, descarga CSV desde servidor remoto y '
+    'carga de backup SQL) demuestran la capacidad del proceso ETL para integrar '
+    'fuentes con distintos mecanismos de acceso.'
+)
+
+doc.add_paragraph(
+    'El DW resultante soporta consultas analíticas sobre especialidades, '
+    'distribución temporal de atenciones, diagnósticos más frecuentes y '
+    'comparativas entre sucursales, cumpliendo el objetivo de inteligencia de negocios planteado.'
 )
 
 # ============================================================

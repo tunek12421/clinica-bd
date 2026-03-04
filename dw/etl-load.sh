@@ -77,6 +77,7 @@ docker compose exec -T db psql -U clinica_user -d clinica_db -c "
                 WHEN p.CI LIKE 'G1-%' THEN 'G1'
                 WHEN p.CI LIKE 'G4-%' THEN 'G4'
                 WHEN p.CI LIKE 'G6-%' THEN 'G6'
+                WHEN p.ID_Persona BETWEEN 700001 AND 1000000 THEN 'G4'
                 ELSE 'G3'
             END
         FROM PERSONA p
@@ -123,6 +124,7 @@ docker compose exec -T db psql -U clinica_user -d clinica_db -c "
                 WHEN p.CI LIKE 'G1-%' THEN 'G1'
                 WHEN p.CI LIKE 'G4-%' THEN 'G4'
                 WHEN p.CI LIKE 'G6-%' THEN 'G6'
+                WHEN p.ID_Persona BETWEEN 1000001 AND 1300000 THEN 'G4'
                 ELSE 'G3'
             END
         FROM PERSONA p
@@ -171,6 +173,7 @@ docker compose exec -T db psql -U clinica_user -d clinica_db -c "
                 WHEN pac.CI LIKE 'G1-%' THEN 'G1'
                 WHEN pac.CI LIKE 'G4-%' THEN 'G4'
                 WHEN pac.CI LIKE 'G6-%' THEN 'G6'
+                WHEN pac.ID_Persona BETWEEN 700001 AND 1000000 THEN 'G4'
                 ELSE 'G3'
             END
         FROM DIAGNOSTICO d

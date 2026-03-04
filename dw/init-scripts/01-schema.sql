@@ -18,11 +18,8 @@ CREATE TABLE dim_sucursal (
     host             VARCHAR(200) NOT NULL
 );
 
-INSERT INTO dim_sucursal (nombre, host) VALUES
-    ('Grupo 3', 'localhost:5433 (PostgreSQL - clinica_db)'),
-    ('Grupo 1', 'aws-0-us-west-2.pooler.supabase.com (Supabase)'),
-    ('Grupo 6', 'PostgreSQL 17 (dump hospital_db)'),
-    ('Grupo 4', 'ep-curly-snow-a8psiq7k-pooler.eastus2.azure.neon.tech (Neon)');
+-- Los datos de dim_sucursal se cargan automaticamente desde dw_data.dump
+-- via 02-load-data.sh al inicializar el contenedor
 
 CREATE TABLE dim_paciente (
     paciente_key     SERIAL PRIMARY KEY,

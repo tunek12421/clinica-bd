@@ -133,14 +133,14 @@ doc.add_heading('1. INTRODUCCION', level=1)
 doc.add_paragraph(
     'El presente informe documenta la preparacion de la herramienta de analisis de datos '
     'seleccionada para la visualizacion y toma de decisiones sobre el Data Warehouse (DW) '
-    'de la Clinica. El DW integra datos de tres fuentes heterogeneas (Grupo 1, Grupo 3 y '
-    'Grupo 6) bajo un esquema estrella con snowflake parcial, consolidando 123,257 atenciones '
-    'medicas, 126,487 pacientes y 14,668 medicos.'
+    'de la Clinica. El DW integra datos de cuatro fuentes heterogeneas (Grupo 1, Grupo 3, '
+    'Grupo 4 y Grupo 6) bajo un esquema estrella con snowflake parcial, consolidando '
+    '424,369 atenciones medicas, 426,487 pacientes y 314,668 medicos.'
 )
 doc.add_paragraph(
     'La herramienta seleccionada permite conectarse directamente al DW PostgreSQL, '
-    'construir consultas analiticas y generar visualizaciones interactivas que apoyan '
-    'la toma de decisiones en el ambito clinico y administrativo.'
+    'construir consultas analiticas comparativas entre sucursales y generar visualizaciones '
+    'interactivas que apoyan la toma de decisiones en el ambito clinico y administrativo.'
 )
 
 # ============================================================
@@ -204,10 +204,10 @@ doc.add_paragraph(
 add_table(
     ['Tabla', 'Tipo', 'Registros', 'Rol en los graficos'],
     [
-        ['dim_sucursal', 'Subdimenion', '3', 'Segmentacion por grupo (G1, G3, G6)'],
-        ['dim_paciente', 'Dimension', '126,487', 'Datos demograficos de pacientes'],
-        ['dim_medico', 'Dimension', '14,668', 'Especialidades y distribucion de medicos'],
-        ['fact_atenciones', 'Hechos', '123,257', 'Base de todos los indicadores analiticos'],
+        ['dim_sucursal', 'Subdimension', '4', 'Segmentacion por grupo (G1, G3, G4, G6)'],
+        ['dim_paciente', 'Dimension', '426,487', 'Datos demograficos de pacientes'],
+        ['dim_medico', 'Dimension', '314,668', 'Especialidades y distribucion de medicos'],
+        ['fact_atenciones', 'Hechos', '424,369', 'Base de todos los indicadores analiticos'],
     ]
 )
 
@@ -222,18 +222,18 @@ add_screenshot_placeholder('Diagrama del modelo en Metabase - relaciones entre t
 doc.add_heading('3.3. Estructura del Dashboard', level=2)
 doc.add_paragraph(
     'El panel de control agrupa las 6 visualizaciones en un dashboard denominado '
-    '"Analitica Clinica - Toma de Decisiones". Cada grafico responde a una pregunta '
-    'de negocio orientada a la gestion clinica y administrativa:'
+    '"Dashboard Clinica - Toma de Decisiones". Cada grafico compara las 4 sucursales '
+    'y responde a una pregunta de negocio orientada a la gestion clinica y administrativa:'
 )
 add_table(
     ['#', 'Nombre del grafico', 'Tipo', 'Tablas involucradas'],
     [
-        ['1', 'Atenciones por especialidad medica', 'Barras', 'fact_atenciones + dim_medico'],
-        ['2', 'Distribucion de atenciones por grupo', 'Torta', 'fact_atenciones + dim_sucursal'],
-        ['3', 'Tendencia mensual de atenciones', 'Linea', 'fact_atenciones'],
-        ['4', 'Top 10 diagnosticos mas frecuentes', 'Barras', 'fact_atenciones'],
-        ['5', 'Atenciones por dia de la semana', 'Barras', 'fact_atenciones'],
-        ['6', 'Medicos registrados por especialidad', 'Barras', 'dim_medico'],
+        ['1', 'Carga laboral por sucursal', 'Barras agrupadas', 'fact_atenciones + dim_paciente + dim_sucursal'],
+        ['2', 'Atenciones anuales por sucursal', 'Barras agrupadas', 'fact_atenciones + dim_paciente + dim_sucursal'],
+        ['3', 'Especialidades saturadas por sucursal', 'Tabla', 'fact_atenciones + dim_medico + dim_paciente + dim_sucursal'],
+        ['4', 'Top diagnosticos por sucursal', 'Barras apiladas 100%', 'fact_atenciones + dim_paciente + dim_sucursal'],
+        ['5', 'Atenciones por dia de la semana', 'Barras apiladas 100%', 'fact_atenciones + dim_paciente + dim_sucursal'],
+        ['6', 'Estado de atenciones por sucursal', 'Barras apiladas 100%', 'fact_atenciones + dim_paciente + dim_sucursal'],
     ]
 )
 doc.add_paragraph()
@@ -249,115 +249,176 @@ doc.add_heading('4. CONSULTAS PARA GRAFICOS DE TOMA DE DECISIONES', level=1)
 consultas = [
     {
         'num': '4.1',
-        'titulo': 'Atenciones por Especialidad Medica',
-        'tipo': 'Barras horizontales',
-        'dimension': 'dim_medico (especialidad)',
+        'titulo': 'Carga Laboral por Sucursal — Ultima Gestion Completa',
+        'tipo': 'Barras agrupadas',
+        'dimension': 'dim_sucursal (nombre)',
         'sql': (
-            "SELECT dm.especialidad, COUNT(*) AS total_atenciones\n"
+            "SELECT ds.nombre AS sucursal,\n"
+            "       COUNT(*) AS total_atenciones,\n"
+            "       COUNT(DISTINCT fa.medico_key)\n"
+            "           AS medicos_activos,\n"
+            "       ROUND(COUNT(*)::numeric /\n"
+            "             NULLIF(COUNT(DISTINCT fa.medico_key), 0), 1)\n"
+            "             AS carga_por_medico\n"
             "FROM fact_atenciones fa\n"
-            "JOIN dim_medico dm ON dm.medico_key = fa.medico_key\n"
-            "GROUP BY dm.especialidad\n"
-            "ORDER BY total_atenciones DESC;"
+            "JOIN dim_paciente dp ON dp.paciente_key = fa.paciente_key\n"
+            "JOIN dim_sucursal ds ON ds.sucursal_key = dp.sucursal_key\n"
+            "WHERE fa.anio = (SELECT MAX(anio) - 1\n"
+            "                 FROM fact_atenciones)\n"
+            "GROUP BY ds.nombre\n"
+            "ORDER BY carga_por_medico DESC;"
         ),
         'decision': (
-            'Identifica que especialidades medicas concentran mayor demanda de atenciones. '
-            'Permite a la administracion clinica decidir donde reforzar el personal medico, '
-            'ampliar consultorios o priorizar inversion en equipamiento. '
-            'Una especialidad con alta demanda y pocos medicos indica una brecha de capacidad.'
+            'Compara la carga de trabajo entre sucursales durante la ultima gestion completa, '
+            'midiendo atenciones totales, medicos activos y el ratio atenciones/medico. '
+            'Una sucursal con ratio alto indica sobrecarga del personal medico, lo que '
+            'justifica contrataciones o redistribucion de recursos humanos. Permite a la '
+            'gerencia priorizar inversiones en las sucursales con mayor presion operativa.'
         ),
     },
     {
         'num': '4.2',
-        'titulo': 'Distribucion de Atenciones por Grupo (Sucursal)',
-        'tipo': 'Torta (Pie)',
-        'dimension': 'dim_sucursal',
+        'titulo': 'Atenciones Anuales por Sucursal — Gestiones Completas',
+        'tipo': 'Barras agrupadas',
+        'dimension': 'fact_atenciones (anio) + dim_sucursal',
         'sql': (
-            "SELECT ds.nombre AS sucursal, COUNT(*) AS total_atenciones\n"
+            "SELECT fa.anio::text AS año,\n"
+            "       ds.nombre AS sucursal,\n"
+            "       COUNT(*) AS total_atenciones\n"
             "FROM fact_atenciones fa\n"
             "JOIN dim_paciente dp ON dp.paciente_key = fa.paciente_key\n"
             "JOIN dim_sucursal ds ON ds.sucursal_key = dp.sucursal_key\n"
-            "GROUP BY ds.nombre\n"
-            "ORDER BY total_atenciones DESC;"
+            "WHERE fa.anio < (SELECT MAX(anio)\n"
+            "                 FROM fact_atenciones)\n"
+            "GROUP BY fa.anio, ds.nombre\n"
+            "ORDER BY fa.anio, ds.nombre;"
         ),
         'decision': (
-            'Muestra como se distribuyen las atenciones entre las tres fuentes de datos '
-            '(Grupo 1, Grupo 3 y Grupo 6). Permite identificar que sucursal genera mayor '
-            'volumen de actividad clinica y comparar la contribucion proporcional de cada '
-            'una al sistema integrado de informacion.'
+            'Revela la evolucion historica del volumen de atenciones por sucursal, '
+            'excluyendo la gestion en curso (datos parciales) para una comparacion justa. '
+            'Permite identificar cuando cada grupo inicio operaciones, detectar tendencias '
+            'de crecimiento o decrecimiento, y comparar la escala operativa entre sedes a '
+            'lo largo del tiempo.'
         ),
     },
     {
         'num': '4.3',
-        'titulo': 'Tendencia Mensual de Atenciones',
-        'tipo': 'Linea temporal',
-        'dimension': 'fact_atenciones (anio, mes)',
+        'titulo': 'Especialidades Saturadas por Sucursal',
+        'tipo': 'Tabla ordenada',
+        'dimension': 'dim_medico (especialidad) + dim_sucursal',
         'sql': (
-            "SELECT anio, mes, COUNT(*) AS total_atenciones\n"
-            "FROM fact_atenciones\n"
-            "GROUP BY anio, mes\n"
-            "ORDER BY anio, mes;"
+            "SELECT ds.nombre AS sucursal,\n"
+            "       dm.especialidad,\n"
+            "       COUNT(*) AS atenciones,\n"
+            "       COUNT(DISTINCT fa.medico_key) AS medicos,\n"
+            "       ROUND(COUNT(*)::numeric /\n"
+            "             NULLIF(COUNT(DISTINCT fa.medico_key), 0), 1)\n"
+            "             AS carga\n"
+            "FROM fact_atenciones fa\n"
+            "JOIN dim_medico dm ON dm.medico_key = fa.medico_key\n"
+            "JOIN dim_paciente dp ON dp.paciente_key = fa.paciente_key\n"
+            "JOIN dim_sucursal ds ON ds.sucursal_key = dp.sucursal_key\n"
+            "GROUP BY ds.nombre, dm.especialidad\n"
+            "HAVING COUNT(*) > 100\n"
+            "ORDER BY carga DESC\n"
+            "LIMIT 20;"
         ),
         'decision': (
-            'Revela la evolucion temporal de la demanda clinica. '
-            'Permite identificar meses de alta y baja actividad, detectar estacionalidades '
-            'y planificar la disponibilidad de personal con anticipacion. '
-            'Picos inusuales pueden indicar brotes epidemicos o eventos especiales.'
+            'Identifica las combinaciones sucursal-especialidad con mayor saturacion. '
+            'El indicador carga (atenciones/medico) revela donde un solo medico atiende '
+            'desproporcionadamente muchos pacientes. Estas especialidades son candidatas '
+            'prioritarias para contratar personal adicional o derivar pacientes a otras sedes. '
+            'Permite focalizar la inversion exactamente donde se necesita.'
         ),
     },
     {
         'num': '4.4',
-        'titulo': 'Top 10 Diagnosticos Mas Frecuentes',
-        'tipo': 'Barras verticales',
-        'dimension': 'fact_atenciones (tipo_diagnostico)',
+        'titulo': 'Top Diagnosticos por Sucursal — Ultima Gestion Completa',
+        'tipo': 'Barras apiladas 100%',
+        'dimension': 'fact_atenciones (tipo_diagnostico) + dim_sucursal',
         'sql': (
-            "SELECT tipo_diagnostico, COUNT(*) AS total\n"
-            "FROM fact_atenciones\n"
-            "WHERE tipo_diagnostico IS NOT NULL\n"
-            "GROUP BY tipo_diagnostico\n"
+            "SELECT fa.tipo_diagnostico,\n"
+            "       ds.nombre AS sucursal,\n"
+            "       COUNT(*) AS total\n"
+            "FROM fact_atenciones fa\n"
+            "JOIN dim_paciente dp ON dp.paciente_key = fa.paciente_key\n"
+            "JOIN dim_sucursal ds ON ds.sucursal_key = dp.sucursal_key\n"
+            "WHERE fa.anio = (SELECT MAX(anio) - 1\n"
+            "                 FROM fact_atenciones)\n"
+            "GROUP BY fa.tipo_diagnostico, ds.nombre\n"
             "ORDER BY total DESC\n"
-            "LIMIT 10;"
+            "LIMIT 20;"
         ),
         'decision': (
-            'Identifica las enfermedades y tipos de diagnostico mas recurrentes. '
-            'Informacion critica para definir protocolos de atencion prioritarios, '
-            'asegurar disponibilidad de medicamentos e insumos, y orientar campanas '
-            'de prevencion hacia las patologias mas frecuentes en la poblacion atendida.'
+            'Compara la distribucion porcentual de tipos de diagnostico entre sucursales '
+            'durante la ultima gestion completa. El apilado al 100% normaliza las diferencias '
+            'de volumen entre grupos, permitiendo comparar el perfil diagnostico de cada sede. '
+            'Si una sucursal presenta alta concentracion de un tipo especifico, la administracion '
+            'puede asignar recursos especializados de forma dirigida.'
         ),
     },
     {
         'num': '4.5',
-        'titulo': 'Atenciones por Dia de la Semana',
-        'tipo': 'Barras verticales',
-        'dimension': 'fact_atenciones (dia_semana)',
+        'titulo': 'Atenciones por Dia de la Semana por Sucursal — Ultima Gestion Completa',
+        'tipo': 'Barras apiladas 100%',
+        'dimension': 'fact_atenciones (dia_semana) + dim_sucursal',
         'sql': (
-            "SELECT dia_semana, COUNT(*) AS total_atenciones\n"
-            "FROM fact_atenciones\n"
-            "GROUP BY dia_semana\n"
-            "ORDER BY total_atenciones DESC;"
+            "SELECT CASE fa.dia_semana\n"
+            "           WHEN 'Monday' THEN 'Lunes'\n"
+            "           WHEN 'Tuesday' THEN 'Martes'\n"
+            "           WHEN 'Wednesday' THEN 'Miercoles'\n"
+            "           WHEN 'Thursday' THEN 'Jueves'\n"
+            "           WHEN 'Friday' THEN 'Viernes'\n"
+            "           WHEN 'Saturday' THEN 'Sabado'\n"
+            "           WHEN 'Sunday' THEN 'Domingo'\n"
+            "       END AS dia_semana,\n"
+            "       ds.nombre AS sucursal,\n"
+            "       COUNT(*) AS total_atenciones\n"
+            "FROM fact_atenciones fa\n"
+            "JOIN dim_paciente dp ON dp.paciente_key = fa.paciente_key\n"
+            "JOIN dim_sucursal ds ON ds.sucursal_key = dp.sucursal_key\n"
+            "WHERE fa.anio = (SELECT MAX(anio) - 1\n"
+            "                 FROM fact_atenciones)\n"
+            "GROUP BY fa.dia_semana, ds.nombre\n"
+            "ORDER BY CASE fa.dia_semana\n"
+            "    WHEN 'Monday' THEN 1 WHEN 'Tuesday' THEN 2\n"
+            "    WHEN 'Wednesday' THEN 3 WHEN 'Thursday' THEN 4\n"
+            "    WHEN 'Friday' THEN 5 WHEN 'Saturday' THEN 6\n"
+            "    WHEN 'Sunday' THEN 7\n"
+            "END;"
         ),
         'decision': (
-            'Determina que dias de la semana concentran mayor numero de atenciones. '
-            'Permite optimizar la distribucion de turnos medicos, asignar mas personal '
-            'en los dias de alta demanda y reducir tiempos de espera para los pacientes.'
+            'Muestra la distribucion porcentual de atenciones por dia de la semana y sucursal '
+            'durante la ultima gestion completa. El apilado al 100% permite comparar la '
+            'participacion relativa de cada grupo sin que las diferencias de volumen distorsionen '
+            'la visualizacion. Permite optimizar la asignacion de turnos medicos diferenciada '
+            'por sede y dia de la semana.'
         ),
     },
     {
         'num': '4.6',
-        'titulo': 'Medicos Registrados por Especialidad',
-        'tipo': 'Barras horizontales',
-        'dimension': 'dim_medico (especialidad)',
+        'titulo': 'Estado de Atenciones por Sucursal — Ultima Gestion',
+        'tipo': 'Barras apiladas 100%',
+        'dimension': 'fact_atenciones (estado) + dim_sucursal',
         'sql': (
-            "SELECT especialidad, COUNT(*) AS total_medicos\n"
-            "FROM dim_medico\n"
-            "GROUP BY especialidad\n"
-            "ORDER BY total_medicos DESC;"
+            "SELECT ds.nombre AS sucursal,\n"
+            "       fa.estado,\n"
+            "       COUNT(*) AS total\n"
+            "FROM fact_atenciones fa\n"
+            "JOIN dim_paciente dp ON dp.paciente_key = fa.paciente_key\n"
+            "JOIN dim_sucursal ds ON ds.sucursal_key = dp.sucursal_key\n"
+            "WHERE fa.anio = (SELECT MAX(anio)\n"
+            "                 FROM fact_atenciones)\n"
+            "GROUP BY ds.nombre, fa.estado\n"
+            "ORDER BY ds.nombre, total DESC;"
         ),
         'decision': (
-            'Muestra la distribucion del personal medico por especialidad. '
-            'Cruzado con el grafico de atenciones por especialidad (consulta 4.1), '
-            'permite detectar desbalances: especialidades con alta demanda y pocos medicos '
-            'indican necesidad de contratacion; con muchos medicos y baja demanda '
-            'sugieren redistribucion de recursos humanos.'
+            'Compara la distribucion porcentual del estado de las atenciones medicas '
+            '(Completada, Pendiente, Alta, Finalizado, Cancelada, etc.) entre las 4 sucursales '
+            'durante la ultima gestion registrada. Permite identificar diferencias en la gestion '
+            'operativa de cada grupo: una sucursal con alta proporcion de atenciones pendientes '
+            'o canceladas requiere atencion inmediata, mientras que una con mayoria de completadas '
+            'indica eficiencia operativa.'
         ),
     },
 ]
@@ -392,16 +453,19 @@ conclusiones = [
     'Metabase demostro ser una alternativa viable y eficiente a Power BI en entornos Linux, '
     'permitiendo conectarse directamente al DW PostgreSQL mediante Docker sin configuraciones '
     'adicionales ni costos de licencia.',
-    'Las 6 consultas identificadas cubren las dimensiones clave del DW (especialidad, sucursal, '
-    'tiempo, diagnostico) y responden a preguntas concretas de gestion clinica y administrativa.',
-    'La integracion del modelo estrella con Metabase permite explorar los datos de forma '
-    'interactiva, combinando las tres fuentes de informacion (Grupo 1, Grupo 3 y Grupo 6) '
-    'en un unico panel de control.',
-    'El dashboard centraliza los indicadores mas relevantes para la toma de decisiones, '
-    'reduciendo el tiempo necesario para obtener informacion estrategica del sistema clinico.',
-    'La consulta de tendencia mensual y la distribucion por dia de la semana son especialmente '
-    'utiles para la planificacion operativa, mientras que el analisis de especialidades '
-    'apoya decisiones de contratacion y asignacion de recursos.',
+    'Las 6 consultas comparativas cubren las dimensiones clave del DW (carga laboral, evolucion '
+    'historica, especialidades saturadas, perfil diagnostico, distribucion semanal y estado '
+    'operativo), todas segmentadas por sucursal para facilitar la comparacion entre los 4 grupos.',
+    'El uso de filtros temporales dinamicos (ultima gestion completa, gestiones completas, '
+    'ultima gestion) garantiza que las visualizaciones se actualicen automaticamente conforme '
+    'se incorporan nuevos datos al DW, sin necesidad de modificar las consultas.',
+    'La normalizacion mediante barras apiladas al 100% permite comparar proporciones entre '
+    'sucursales con volumenes de datos muy diferentes (ej. Grupo 4 con datos desde 2015 vs. '
+    'Grupo 3 con datos desde 2024), eliminando el sesgo por escala.',
+    'El dashboard centraliza los indicadores comparativos mas relevantes para la toma de '
+    'decisiones, permitiendo a la gerencia identificar sucursales con sobrecarga, '
+    'especialidades saturadas, diferencias en el perfil diagnostico y estados operativos '
+    'que requieren atencion inmediata.',
 ]
 
 for texto in conclusiones:

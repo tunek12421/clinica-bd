@@ -25,6 +25,17 @@ services:
       - dwdata:/var/lib/postgresql/data
       - ./dw/init-scripts:/docker-entrypoint-initdb.d
 
+  metabase:
+    image: metabase/metabase
+    restart: unless-stopped
+    ports:
+      - "3000:3000"
+    depends_on:
+      - dw
+    volumes:
+      - metabase_data:/metabase.db
+
 volumes:
   pgdata:
   dwdata:
+  metabase_data:

@@ -230,7 +230,7 @@ add_table(
     [
         ['1', 'Carga laboral por sucursal', 'Barras agrupadas', 'fact_atenciones + dim_paciente + dim_sucursal'],
         ['2', 'Atenciones anuales por sucursal', 'Barras agrupadas', 'fact_atenciones + dim_paciente + dim_sucursal'],
-        ['3', 'Especialidades saturadas por sucursal', 'Tabla', 'fact_atenciones + dim_medico + dim_paciente + dim_sucursal'],
+        ['3', 'Top especialidades por sucursal', 'Barras apiladas 100%', 'fact_atenciones + dim_medico + dim_paciente + dim_sucursal'],
         ['4', 'Top diagnosticos por sucursal', 'Barras apiladas 100%', 'fact_atenciones + dim_paciente + dim_sucursal'],
         ['5', 'Atenciones por dia de la semana', 'Barras apiladas 100%', 'fact_atenciones + dim_paciente + dim_sucursal'],
         ['6', 'Estado de atenciones por sucursal', 'Barras apiladas 100%', 'fact_atenciones + dim_paciente + dim_sucursal'],
@@ -303,32 +303,29 @@ consultas = [
     },
     {
         'num': '4.3',
-        'titulo': 'Especialidades Saturadas por Sucursal',
-        'tipo': 'Tabla ordenada',
+        'titulo': 'Top Especialidades por Sucursal — Ultima Gestion Completa',
+        'tipo': 'Barras apiladas 100%',
         'dimension': 'dim_medico (especialidad) + dim_sucursal',
         'sql': (
-            "SELECT ds.nombre AS sucursal,\n"
-            "       dm.especialidad,\n"
-            "       COUNT(*) AS atenciones,\n"
-            "       COUNT(DISTINCT fa.medico_key) AS medicos,\n"
-            "       ROUND(COUNT(*)::numeric /\n"
-            "             NULLIF(COUNT(DISTINCT fa.medico_key), 0), 1)\n"
-            "             AS carga\n"
+            "SELECT dm.especialidad,\n"
+            "       ds.nombre AS sucursal,\n"
+            "       COUNT(*) AS total_atenciones\n"
             "FROM fact_atenciones fa\n"
             "JOIN dim_medico dm ON dm.medico_key = fa.medico_key\n"
             "JOIN dim_paciente dp ON dp.paciente_key = fa.paciente_key\n"
             "JOIN dim_sucursal ds ON ds.sucursal_key = dp.sucursal_key\n"
-            "GROUP BY ds.nombre, dm.especialidad\n"
-            "HAVING COUNT(*) > 100\n"
-            "ORDER BY carga DESC\n"
+            "WHERE fa.anio = (SELECT MAX(anio) - 1\n"
+            "                 FROM fact_atenciones)\n"
+            "GROUP BY dm.especialidad, ds.nombre\n"
+            "ORDER BY total_atenciones DESC\n"
             "LIMIT 20;"
         ),
         'decision': (
-            'Identifica las combinaciones sucursal-especialidad con mayor saturacion. '
-            'El indicador carga (atenciones/medico) revela donde un solo medico atiende '
-            'desproporcionadamente muchos pacientes. Estas especialidades son candidatas '
-            'prioritarias para contratar personal adicional o derivar pacientes a otras sedes. '
-            'Permite focalizar la inversion exactamente donde se necesita.'
+            'Muestra la distribucion porcentual de las especialidades mas demandadas por '
+            'sucursal durante la ultima gestion completa. El apilado al 100% normaliza las '
+            'diferencias de volumen, permitiendo comparar que especialidades concentran mayor '
+            'carga asistencial en cada grupo. Facilita la planificacion de contrataciones y '
+            'la redistribucion de especialistas entre sedes.'
         ),
     },
     {
@@ -413,12 +410,14 @@ consultas = [
             "ORDER BY ds.nombre, total DESC;"
         ),
         'decision': (
-            'Compara la distribucion porcentual del estado de las atenciones medicas '
-            '(Completada, Pendiente, Alta, Finalizado, Cancelada, etc.) entre las 4 sucursales '
-            'durante la ultima gestion registrada. Permite identificar diferencias en la gestion '
-            'operativa de cada grupo: una sucursal con alta proporcion de atenciones pendientes '
-            'o canceladas requiere atencion inmediata, mientras que una con mayoria de completadas '
-            'indica eficiencia operativa.'
+            'Los 10 estados representan el ciclo de vida de una atencion medica: '
+            'Pendiente > Confirmada > En consulta > Atendida > Finalizado > Alta/Control/Completada, '
+            'con Cancelada y No asistio como estados de abandono. '
+            'Comparar la distribucion porcentual entre sucursales permite identificar: '
+            'sucursales con cuello de botella (muchas Pendientes), perdida de productividad '
+            '(muchas Canceladas o No asistio), y diferencias en el uso de estados entre sedes. '
+            'El hallazgo principal es la falta de estandarizacion: cada sucursal usa los estados '
+            'de forma diferente, lo que lleva a la decision de unificar criterios operativos.'
         ),
     },
 ]

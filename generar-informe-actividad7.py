@@ -248,67 +248,397 @@ doc.add_paragraph(
 )
 
 # --- 3.2 Transformacion ---
-doc.add_heading('3.2. Transformacion de la informacion', level=2)
+doc.add_heading('3.2. Transformacion de la informacion (ETL)', level=2)
 doc.add_paragraph(
     'El proceso ETL (Extract, Transform, Load) transforma los datos operacionales '
-    'en un modelo dimensional optimizado para el analisis:'
+    'de cuatro fuentes heterogeneas en un modelo dimensional optimizado para el analisis. '
+    'A continuacion se detalla el proceso de extraccion, analisis comparativo y '
+    'transformacion de cada grupo.'
 )
 
-doc.add_heading('Extraccion', level=3)
+# --- 3.2.1 Modelo destino ---
+doc.add_heading('3.2.1. Modelo Data Warehouse (destino)', level=3)
 doc.add_paragraph(
-    'Se extraen los datos de la base operacional (puerto 5432) utilizando '
-    'comandos COPY de PostgreSQL, que exportan los resultados de consultas '
-    'SQL a archivos CSV temporales. La extraccion aplica las siguientes '
-    'transformaciones iniciales:'
+    'El Data Warehouse utiliza un modelo estrella con snowflake parcial '
+    '(dim_sucursal como subdimension de dim_paciente). Cada fila de '
+    'fact_atenciones representa un evento de diagnostico dentro de una '
+    'cita medica, vinculado a un paciente y un medico.'
 )
-extracciones = [
-    'Clasificacion por grupo de origen: se asigna un identificador (G1, G3, G4, G6) '
-    'a cada registro basado en el patron del CI o el rango de ID_Persona.',
-    'Separacion de pacientes y medicos: se distinguen por la presencia del campo Matricula.',
-    'Derivacion de campos temporales: se calculan anio, mes, trimestre y dia_semana '
-    'a partir de la fecha de cita.',
-]
-for e in extracciones:
-    p = doc.add_paragraph(e, style='List Bullet')
-    p.runs[0].font.size = Pt(11)
-
-doc.add_heading('Transformacion', level=3)
 doc.add_paragraph(
-    'Los datos extraidos se cargan en una tabla de staging temporal donde se realizan '
-    'los JOINs de integridad referencial con las dimensiones del DW:'
-)
-transformaciones = [
-    'Resolucion de claves subrogadas: se reemplazan los CI de paciente y medico por '
-    'sus respectivas paciente_key y medico_key del DW.',
-    'Asignacion de sucursal: cada paciente se vincula a su sucursal (dim_sucursal) '
-    'a traves de la subdimension dim_paciente, formando el snowflake parcial.',
-    'Limpieza de texto: se eliminan saltos de linea en campos de descripcion y '
-    'observaciones para garantizar la integridad del formato CSV.',
-]
-for t in transformaciones:
-    p = doc.add_paragraph(t, style='List Bullet')
-    p.runs[0].font.size = Pt(11)
-
-doc.add_heading('Carga', level=3)
-doc.add_paragraph(
-    'Los datos transformados se insertan en la tabla de hechos fact_atenciones del DW '
-    '(puerto 5434) mediante INSERT ... SELECT desde la tabla de staging. El proceso '
-    'completo se ejecuta con el script etl-load.sh y tarda aproximadamente 2 minutos '
-    'para los 424,369 registros.'
-)
-
-doc.add_paragraph()
-doc.add_paragraph(
-    'El esquema resultante sigue el modelo estrella con snowflake parcial:'
+    'dim_sucursal -- dim_paciente -- fact_atenciones -- dim_medico'
 )
 add_table(
-    ['Tabla', 'Tipo', 'Registros', 'Descripcion'],
+    ['Tabla', 'Tipo', 'Columnas', 'Descripcion'],
     [
-        ['dim_sucursal', 'Subdimension', '4', 'Identifica las 4 sucursales (grupos)'],
-        ['dim_paciente', 'Dimension', '426,487', 'Datos demograficos, vinculado a sucursal'],
-        ['dim_medico', 'Dimension', '314,668', 'Especialidad, matricula, ubicacion'],
-        ['fact_atenciones', 'Hechos', '424,369', 'Cada atencion medica con metricas temporales'],
+        ['dim_sucursal', 'Subdimension', '3', 'Fuente/sucursal de los datos (G3, G1, G4, G6)'],
+        ['dim_paciente', 'Dimension', '11', 'Datos del paciente + FK a dim_sucursal'],
+        ['dim_medico', 'Dimension', '9', 'Datos del medico con especialidad'],
+        ['fact_atenciones', 'Hechos', '17', 'Diagnostico + cita + dimensiones temporales'],
     ]
+)
+doc.add_paragraph()
+
+# dim_sucursal
+doc.add_paragraph('Contenido de dim_sucursal:')
+add_table(
+    ['sucursal_key', 'nombre', 'host'],
+    [
+        ['1', 'Grupo 3', 'localhost:5433 (PostgreSQL - clinica_db)'],
+        ['2', 'Grupo 1', 'aws-0-us-west-2.pooler.supabase.com (Supabase)'],
+        ['3', 'Grupo 6', 'PostgreSQL 17 (dump hospital_db)'],
+        ['4', 'Grupo 4', 'ep-xxx.us-east-2.aws.neon.tech (Neon)'],
+    ]
+)
+doc.add_paragraph()
+
+# Tipo de conexion
+doc.add_paragraph('Tipo de conexion a las fuentes de extraccion:')
+add_table(
+    ['Fuente', 'Tipo de conexion', 'Metodo'],
+    [
+        ['Grupo 3 (propio)', 'Directa (localhost)', 'Consulta SQL local al contenedor Docker'],
+        ['Grupo 1', 'Descarga CSV', 'Conexion psql a Supabase -> \\copy TO STDOUT -> CSV'],
+        ['Grupo 4', 'Descarga CSV', 'Conexion psql a Neon -> \\copy TO STDOUT -> CSV'],
+        ['Grupo 6', 'Backup (dump SQL)', 'Archivo dump PostgreSQL -> conversion encoding -> staging'],
+    ]
+)
+doc.add_paragraph()
+
+# Datos base G3
+doc.add_paragraph(
+    'El punto de partida es el DW cargado unicamente con datos del Grupo 3 '
+    '(nuestro modelo original):'
+)
+add_table(
+    ['Tabla DW', 'Registros (solo G3)'],
+    [
+        ['dim_sucursal', '4 (pre-cargadas)'],
+        ['dim_paciente', '4,500'],
+        ['dim_medico', '500'],
+        ['fact_atenciones', '15,000'],
+    ]
+)
+doc.add_paragraph()
+
+# --- 3.2.2 ETL Grupo 3 ---
+doc.add_heading('3.2.2. Extraccion: Grupo 3 (Directa)', level=3)
+doc.add_paragraph(
+    'Los datos del Grupo 3 residen en la misma base de datos destino (clinica_db). '
+    'La carga al DW se realiza mediante consultas COPY directas:'
+)
+p = doc.add_paragraph()
+run = p.add_run(
+    '-- Extraccion directa desde el contenedor \'db\'\n'
+    'docker compose exec -T db psql -U clinica_user -d clinica_db -c "\n'
+    '    COPY (\n'
+    '        SELECT p.CI, p.Nombre, p.Fecha_Nacimiento, ...\n'
+    '        FROM PERSONA p JOIN ZONA z ON p.ID_Zona = z.ID_Zona\n'
+    '        WHERE p.Matricula IS NULL\n'
+    '    ) TO STDOUT WITH CSV"'
+)
+run.font.size = Pt(9)
+run.font.name = 'Courier New'
+
+# --- 3.2.3 ETL Grupo 1 ---
+doc.add_heading('3.2.3. Analisis comparativo: Grupo 1 -> Grupo 3', level=3)
+doc.add_paragraph(
+    'Base de datos alojada en Supabase (AWS us-west-2). 4 tablas planas sin '
+    'normalizacion de catalogos:'
+)
+add_table(
+    ['Tabla', 'Registros', 'Columnas principales'],
+    [
+        ['pacientes', '50,000', 'paciente_id, nombre, fecha_nacimiento, genero'],
+        ['personal', '50,000', 'personal_id, nombre, cargo, especialidad'],
+        ['atenciones', '50,000', 'atencion_id, paciente_id, personal_id, fecha'],
+        ['diagnosticos', '68,123', 'diagnostico_id, atencion_id, codigo_cie10'],
+    ]
+)
+doc.add_paragraph()
+
+doc.add_paragraph('Diferencias identificadas:')
+add_table(
+    ['Aspecto', 'Grupo 3', 'Grupo 1', 'Observacion'],
+    [
+        ['Identificacion', 'CI obligatorio', 'Sin CI', 'Se genera marcador G1-PAC-{id}'],
+        ['Ubicacion', 'zona + ciudad', 'No existe', 'Se asigna zona especial ID=99'],
+        ['Especialidad', 'ID normalizado (15)', 'Texto libre', 'JOIN por nombre con ESPECIALIDAD'],
+        ['Diagnostico', 'FK -> TIPO_DIAGNOSTICO', 'Codigo CIE-10', 'Mapeo CIE-10 -> categoria'],
+        ['Fecha/hora', 'fecha_cita + hora', 'timestamp unico', 'Se extrae DATE y TIME'],
+        ['Turno', 'numero_turno', 'No existe', 'ROW_NUMBER() por dia+medico'],
+        ['Recetas', 'Tabla RECETA', 'No tiene', 'No se migran recetas'],
+    ]
+)
+doc.add_paragraph()
+
+doc.add_paragraph('Estrategia de IDs (offsets para evitar colision):')
+add_table(
+    ['Entidad', 'Rango original', 'Offset', 'Rango destino'],
+    [
+        ['Pacientes -> PERSONA', '1 - 50,000', '+100,000', '100,001 - 150,000'],
+        ['Personal -> PERSONA', '1 - 50,000', '+200,000', '200,001 - 250,000'],
+        ['Atenciones -> CITA_MEDICA', '1 - 50,000', '+100,000', '100,001 - 150,000'],
+        ['Diagnosticos -> DIAGNOSTICO', '1 - 68,123', '+100,000', '100,001 - 168,123'],
+    ]
+)
+doc.add_paragraph()
+
+doc.add_paragraph('Mapeo CIE-10 -> Tipo de Diagnostico:')
+add_table(
+    ['Codigo CIE-10', 'Diagnostico', 'Categoria asignada'],
+    [
+        ['I10', 'Hipertension esencial', 'Clinico'],
+        ['R10.9 / R51', 'Dolor abdominal / Cefalea', 'Clinico'],
+        ['J02.9 / J06.9 / J20.9', 'Infecciones respiratorias', 'Clinico'],
+        ['M54.5', 'Dolor lumbar bajo', 'Por Imagen'],
+        ['E78.5 / E11.9', 'Hiperlipidemia / Diabetes tipo 2', 'Laboratorio'],
+        ['N39.0', 'Infeccion urinaria', 'Laboratorio'],
+        ['E66.9', 'Obesidad', 'Nutricional'],
+        ['K29.5', 'Gastritis cronica', 'Endoscopico'],
+        ['Z00.0 / Z71.1', 'Examen general / Consulta orientacion', 'Ambulatorio'],
+    ]
+)
+doc.add_paragraph()
+
+doc.add_paragraph('Resultado de la carga G3 + G1:')
+add_table(
+    ['Tabla DW', 'Antes (G3)', '+ Grupo 1', 'Despues (Total)'],
+    [
+        ['dim_paciente', '4,500', '+87,487', '91,987'],
+        ['dim_medico', '500', '+13,337', '13,837'],
+        ['fact_atenciones', '15,000', '+68,123', '83,123'],
+    ]
+)
+doc.add_paragraph()
+
+# --- 3.2.4 ETL Grupo 6 ---
+doc.add_heading('3.2.4. Analisis comparativo: Grupo 6 -> Grupo 3', level=3)
+doc.add_paragraph(
+    'Esquema PostgreSQL 17 normalizado en 3NF. 25 tablas totales (incluye '
+    'catalogos y extensiones), de las cuales 9 son relevantes para la migracion:'
+)
+add_table(
+    ['Tabla', 'Registros', 'Columnas principales'],
+    [
+        ['persona', '35,331', 'id_persona, ci, nombre, fecha_nacimiento, sexo'],
+        ['paciente', '34,500', 'id_paciente, id_persona (tabla de rol)'],
+        ['personal', '831', 'id_personal, id_persona, id_especialidad'],
+        ['especialidad', '24', 'id_especialidad, nombre'],
+        ['zona', '30', 'id_zona, nombre, ciudad'],
+        ['tipo_diagnostico', '25', 'id_tipo_diagnostico, nombre, categoria'],
+        ['cita_medica', '70,000', 'id_cita, fecha_registro, fecha_cita, hora'],
+        ['diagnostico', '40,134', 'id_diagnostico, descripcion, observacion'],
+        ['receta', '40,134', 'id_receta, medicamentos, indicaciones'],
+    ]
+)
+doc.add_paragraph()
+
+doc.add_paragraph('Diferencias identificadas:')
+add_table(
+    ['Aspecto', 'Grupo 3', 'Grupo 6', 'Observacion'],
+    [
+        ['Personas', 'PERSONA unificada', 'persona + paciente + personal', 'Roles en tablas separadas'],
+        ['Especialidades', '15 registros', '24 registros', '9 adicionales sin equivalente en G3'],
+        ['Zonas', '20 zonas', '30 zonas', 'Se asigna zona generica ID=98'],
+        ['Catalogos extra', 'No existen', '9 tablas cat_*', 'No relevantes para el DW'],
+        ['Tipo diagnostico', 'IDs 1-25', 'IDs 1-25 (coinciden)', 'Mapeo directo'],
+    ]
+)
+doc.add_paragraph()
+
+doc.add_paragraph('Estrategia de IDs:')
+add_table(
+    ['Entidad', 'Rango original', 'Offset', 'Rango destino'],
+    [
+        ['Pacientes (persona)', '1 - 34,500', '+300,000', '300,001 - 334,500'],
+        ['Personal (persona)', '1 - 831', '+600,000', '600,001 - 600,831'],
+        ['Citas', '1 - 70,000', '+300,000', '300,001 - 370,000'],
+        ['Diagnosticos', '1 - 40,134', '+300,000', '300,001 - 340,134'],
+        ['Recetas', '1 - 40,134', '+300,000', '300,001 - 340,134'],
+    ]
+)
+doc.add_paragraph()
+
+doc.add_paragraph(
+    'Extraccion del dump SQL: El G6 entrega sus datos como dump PostgreSQL '
+    '(encoding WIN1252). Se convierte el encoding a UTF-8 y se renombran las '
+    'tablas a staging mediante sed.'
+)
+
+doc.add_paragraph('Mapeo de especialidades (24 -> 15):')
+doc.add_paragraph(
+    'Las especialidades 1-15 coinciden con G3 (mapeo directo). Las 9 adicionales '
+    '(16-24) se remapearon por afinidad clinica:'
+)
+add_table(
+    ['ID G6', 'Especialidad G6', 'ID G3', 'Especialidad G3', 'Justificacion'],
+    [
+        ['16', 'Medicina Interna', '1', 'Medicina General', 'Subespecialidad de medicina general'],
+        ['17', 'Cirugia General', '7', 'Traumatologia', 'Area quirurgica mas cercana'],
+        ['18', 'Radiologia', '1', 'Medicina General', 'Servicio de apoyo diagnostico'],
+        ['19', 'Anestesiologia', '1', 'Medicina General', 'Servicio transversal'],
+        ['20', 'Nefrologia', '10', 'Urologia', 'Misma area anatomica (sistema renal)'],
+        ['21', 'Hematologia', '1', 'Medicina General', 'Subespecialidad de medicina interna'],
+        ['22', 'Reumatologia', '7', 'Traumatologia', 'Sistema musculoesqueletico'],
+        ['23', 'Infectologia', '1', 'Medicina General', 'Subespecialidad de medicina interna'],
+        ['24', 'Medicina Familiar', '1', 'Medicina General', 'Equivalente funcional'],
+    ]
+)
+doc.add_paragraph()
+
+doc.add_paragraph('Resultado de la carga G3 + G6:')
+add_table(
+    ['Tabla DW', 'Antes (G3)', '+ Grupo 6', 'Despues (Total)'],
+    [
+        ['dim_paciente', '4,500', '+34,500', '39,000'],
+        ['dim_medico', '500', '+831', '1,331'],
+        ['fact_atenciones', '15,000', '+40,134', '55,134'],
+    ]
+)
+doc.add_paragraph()
+
+# --- 3.2.5 ETL Grupo 4 ---
+doc.add_heading('3.2.5. Analisis comparativo: Grupo 4 -> Grupo 3', level=3)
+doc.add_paragraph(
+    'Base de datos alojada en Neon (PostgreSQL serverless en AWS us-east-2). '
+    'El Grupo 4 es el que aporta el mayor volumen de datos al DW, con registros '
+    'desde 2015 hasta 2026.'
+)
+
+doc.add_paragraph('Esquema del Grupo 4 (fuente):')
+add_table(
+    ['Tabla', 'Registros', 'Columnas principales'],
+    [
+        ['PERSONA', '~330,000', 'ID_Persona, CI, Nombre, Fecha_Nacimiento, Sexo'],
+        ['CITA_MEDICA', '~500,000', 'ID_Cita, Fecha_Cita, Hora, Estado, ID_Paciente'],
+        ['DIAGNOSTICO', '~301,112', 'ID_Diagnostico, Descripcion, ID_Cita'],
+        ['TIPO_DIAGNOSTICO', '25', 'ID_Tipo_Diagnostico, Nombre'],
+        ['ESPECIALIDAD', '15', 'ID_Especialidad, Nombre'],
+        ['ZONA', '20+', 'ID_Zona, Nombre, Ciudad'],
+    ]
+)
+doc.add_paragraph()
+
+doc.add_paragraph('Diferencias identificadas:')
+add_table(
+    ['Aspecto', 'Grupo 3', 'Grupo 4', 'Observacion'],
+    [
+        ['Esquema', 'Modelo propio', 'Mismo esquema relacional', 'Estructura compatible'],
+        ['Especialidades', '15 registros', '15 registros', 'Mapeo directo (IDs coinciden)'],
+        ['Tipo diagnostico', 'IDs 1-25', 'IDs 1-25 (coinciden)', 'Mapeo directo'],
+        ['Volumen', '~15,000 atenciones', '~301,112 atenciones', '20x mayor volumen'],
+        ['Periodo', '2024 - 2026', '2015 - 2026', 'Historico mucho mas extenso'],
+        ['Conexion', 'localhost', 'Neon pooler remoto', 'Requiere SSL'],
+    ]
+)
+doc.add_paragraph()
+
+doc.add_paragraph(
+    'El proceso de extraccion del Grupo 4 es similar al del Grupo 1: se conecta '
+    'al servidor Neon mediante psql con cadena de conexion PostgreSQL (sslmode=require) '
+    'y se descargan las tablas relevantes a CSV mediante \\copy TO STDOUT.'
+)
+
+doc.add_paragraph('Estrategia de IDs:')
+add_table(
+    ['Entidad', 'Rango original', 'Offset', 'Rango destino'],
+    [
+        ['Pacientes -> PERSONA', '1 - ~300,000', '+400,000', '400,001 - ~700,000'],
+        ['Personal -> PERSONA', '1 - ~30,000', '+700,000', '700,001 - ~730,000'],
+        ['Citas -> CITA_MEDICA', '1 - ~500,000', '+400,000', '400,001 - ~900,000'],
+        ['Diagnosticos -> DIAGNOSTICO', '1 - ~301,112', '+400,000', '400,001 - ~701,112'],
+    ]
+)
+doc.add_paragraph()
+
+doc.add_paragraph(
+    'Dado que el Grupo 4 comparte el mismo esquema relacional que el Grupo 3 '
+    '(PERSONA, CITA_MEDICA, DIAGNOSTICO con las mismas tablas de catalogo), '
+    'la transformacion es directa: solo requiere la aplicacion de offsets en los IDs '
+    'y la asignacion del marcador \'G4\' en el campo CI para identificar el origen. '
+    'No fue necesario mapeo de especialidades ni conversion de codigos diagnosticos.'
+)
+
+doc.add_paragraph('Resultado de la carga con Grupo 4:')
+add_table(
+    ['Tabla DW', 'Antes (G3+G1+G6)', '+ Grupo 4', 'Despues (Total)'],
+    [
+        ['dim_paciente', '126,487', '+300,000', '426,487'],
+        ['dim_medico', '14,668', '+300,000', '314,668'],
+        ['fact_atenciones', '123,257', '+301,112', '424,369'],
+    ]
+)
+doc.add_paragraph()
+
+# --- 3.2.6 Carga al DW ---
+doc.add_heading('3.2.6. Carga final al Data Warehouse', level=3)
+doc.add_paragraph(
+    'La carga al modelo estrella se ejecuta en 6 pasos para cada grupo:'
+)
+pasos_etl = [
+    'Extraccion de dim_paciente: SELECT con clasificacion por grupo_origen '
+    '(CASE WHEN CI LIKE \'G1-%\' THEN \'G1\' ... END).',
+    'Extraccion de dim_medico: SELECT de medicos con especialidad y ubicacion.',
+    'Asignacion de sucursal_key: UPDATE dim_paciente SET sucursal_key = CASE grupo_origen '
+    'WHEN \'G3\' THEN 1, \'G1\' THEN 2, \'G6\' THEN 3, \'G4\' THEN 4 END.',
+    'Carga de staging de hechos: combina DIAGNOSTICO + CITA_MEDICA + TIPO_DIAGNOSTICO '
+    'con campos temporales derivados (anio, mes, trimestre, dia_semana).',
+    'Resolucion de FK: INSERT INTO fact_atenciones ... SELECT con JOIN por CI '
+    'a dim_paciente y dim_medico para obtener las claves subrogadas.',
+    'Verificacion de integridad: se valida que no existan registros huerfanos '
+    'ni FK rotas en el modelo final.',
+]
+for paso in pasos_etl:
+    p = doc.add_paragraph(paso, style='List Bullet')
+    p.runs[0].font.size = Pt(11)
+
+doc.add_paragraph()
+doc.add_paragraph('Verificacion de integridad del DW final:')
+add_table(
+    ['Verificacion', 'Resultado'],
+    [
+        ['Pacientes sin sucursal asignada', '0'],
+        ['Atenciones sin paciente valido (FK)', '0'],
+        ['Atenciones sin medico valido (FK)', '0'],
+        ['Registros huerfanos en fact_atenciones', '0'],
+    ]
+)
+doc.add_paragraph()
+
+# Resultado final consolidado
+doc.add_paragraph('Resultado final del DW con los 4 grupos:')
+add_table(
+    ['Tabla DW', 'G3', 'G1', 'G6', 'G4', 'Total'],
+    [
+        ['dim_sucursal', '-', '-', '-', '-', '4'],
+        ['dim_paciente', '4,500', '87,487', '34,500', '300,000', '426,487'],
+        ['dim_medico', '500', '13,337', '831', '300,000', '314,668'],
+        ['fact_atenciones', '15,000', '68,123', '40,134', '301,112', '424,369'],
+    ]
+)
+doc.add_paragraph()
+
+doc.add_paragraph('Distribucion porcentual de atenciones (hechos) por grupo:')
+add_table(
+    ['Grupo', 'Atenciones', '%'],
+    [
+        ['G3', '15,000', '3.5%'],
+        ['G1', '68,123', '16.1%'],
+        ['G6', '40,134', '9.5%'],
+        ['G4', '301,112', '70.9%'],
+        ['Total', '424,369', '100%'],
+    ]
+)
+doc.add_paragraph()
+
+doc.add_paragraph(
+    'Cada fuente presento desafios distintos de integracion: el Grupo 1 requirio '
+    'mapeo de codigos CIE-10 a categorias diagnosticas y generacion de identificadores '
+    'sinteticos; el Grupo 6 necesito conversion de encoding (WIN1252 -> UTF-8) y '
+    'remapeo de 24 especialidades a 15; el Grupo 4, al compartir el mismo esquema, '
+    'solo requirio offsets de IDs. Los tres tipos de conexion utilizados (directa local, '
+    'descarga CSV desde servidor remoto y carga de backup SQL) demuestran la capacidad '
+    'del proceso ETL para integrar fuentes con distintos mecanismos de acceso.'
 )
 
 # --- 3.3 Metodos y modelos ---
@@ -348,8 +678,8 @@ tecnicas = [
     'Barras apiladas al 100%: para comparar distribuciones porcentuales entre '
     'sucursales con volumenes muy diferentes, eliminando el sesgo por escala '
     '(diagnosticos, dias de semana, estados).',
-    'Tabla ordenada: para mostrar rankings detallados con multiples indicadores '
-    '(especialidades saturadas).',
+    'Barras apiladas 100% con Top N: para mostrar las especialidades mas demandadas '
+    'por sucursal, limitando a las principales para evitar ruido visual.',
     'Filtros temporales dinamicos: subconsultas que seleccionan automaticamente '
     'la ultima gestion completa o las gestiones sin datos parciales.',
 ]
@@ -401,6 +731,9 @@ p.add_run(
     'redistribucion de pacientes entre sedes para equilibrar la carga.'
 ).font.size = Pt(11)
 
+doc.add_paragraph()
+add_screenshot_placeholder('Grafico 1: Carga laboral por sucursal en Metabase')
+
 # Hallazgo 2: Evolucion historica
 doc.add_heading('Hallazgo 2: Incorporacion progresiva de sucursales', level=3)
 doc.add_paragraph(
@@ -421,40 +754,31 @@ p.add_run(
     'para consolidarse.'
 ).font.size = Pt(11)
 
-# Hallazgo 3: Especialidades saturadas
-doc.add_heading('Hallazgo 3: Especialidades con saturacion critica', level=3)
-add_table(
-    ['Sucursal', 'Especialidad', 'Carga/medico'],
-    [
-        ['Grupo 6', 'Oncologia', '71.4'],
-        ['Grupo 1', 'Urologia', '63.0'],
-        ['Grupo 6', 'Urologia', '62.6'],
-        ['Grupo 1', 'Neurologia', '62.5'],
-        ['Grupo 1', 'Ginecologia', '62.1'],
-    ]
-)
 doc.add_paragraph()
-p = doc.add_paragraph()
-rb = p.add_run('Analisis: ')
-rb.bold = True
-rb.font.size = Pt(11)
-p.add_run(
-    'Oncologia en Grupo 6 lidera la saturacion con 71.4 atenciones por medico, '
-    'seguida de Urologia en ambos Grupo 1 y Grupo 6. Estas cifras superan '
-    'ampliamente el promedio general, indicando que pocos medicos concentran '
-    'una carga desproporcionada en estas especialidades.'
-).font.size = Pt(11)
+add_screenshot_placeholder('Grafico 2: Atenciones anuales por sucursal en Metabase')
 
+# Hallazgo 3: Especialidades mas demandadas
+doc.add_heading('Hallazgo 3: Concentracion de demanda por especialidad', level=3)
+doc.add_paragraph(
+    'El analisis porcentual de las especialidades mas demandadas durante la ultima '
+    'gestion completa revela que las 4 sucursales comparten las mismas especialidades '
+    'principales (Medicina General, Cardiologia, Pediatria, Ginecologia, Neurologia), '
+    'pero con proporciones diferentes. Grupo 4 presenta la distribucion mas equilibrada, '
+    'mientras que Grupo 6 concentra mayor demanda en pocas especialidades.'
+)
 p = doc.add_paragraph()
 rb = p.add_run('Decision: ')
 rb.bold = True
 rb.font.size = Pt(11)
 p.add_run(
-    'Contratar oncologos adicionales para Grupo 6 como prioridad inmediata. '
-    'Reforzar Urologia en Grupo 1 y Grupo 6, y Neurologia/Ginecologia en '
-    'Grupo 1. Considerar la derivacion de pacientes hacia sedes con menor '
-    'carga en estas especialidades.'
+    'Reforzar las especialidades con mayor demanda en cada sucursal. Evaluar la '
+    'posibilidad de derivar pacientes hacia sedes con menor carga en especialidades '
+    'saturadas. Planificar contrataciones enfocadas en las especialidades que cada '
+    'sede necesita segun su perfil de demanda.'
 ).font.size = Pt(11)
+
+doc.add_paragraph()
+add_screenshot_placeholder('Grafico 3: Top especialidades por sucursal en Metabase')
 
 # Hallazgo 4: Perfil diagnostico
 doc.add_heading('Hallazgo 4: Diferencias en el perfil diagnostico', level=3)
@@ -476,6 +800,9 @@ p.add_run(
     'que actualmente solo ofrece Grupo 4.'
 ).font.size = Pt(11)
 
+doc.add_paragraph()
+add_screenshot_placeholder('Grafico 4: Top diagnosticos por sucursal en Metabase')
+
 # Hallazgo 5: Distribucion semanal
 doc.add_heading('Hallazgo 5: Distribucion uniforme de la demanda semanal', level=3)
 doc.add_paragraph(
@@ -493,6 +820,9 @@ p.add_run(
     'No se justifica reducir turnos en fines de semana ni reforzar dias especificos, '
     'dado que la demanda es homogenea.'
 ).font.size = Pt(11)
+
+doc.add_paragraph()
+add_screenshot_placeholder('Grafico 5: Atenciones por dia de la semana en Metabase')
 
 # Hallazgo 6: Estado operativo
 doc.add_heading('Hallazgo 6: Diferencias en la gestion operativa', level=3)
@@ -523,6 +853,9 @@ p.add_run(
     'como referencia. Capacitar al personal de Grupo 6 y Grupo 3 en el uso '
     'correcto de los estados para mejorar la trazabilidad del ciclo de atencion.'
 ).font.size = Pt(11)
+
+doc.add_paragraph()
+add_screenshot_placeholder('Grafico 6: Estado de atenciones por sucursal en Metabase')
 
 doc.add_paragraph()
 add_screenshot_placeholder('Dashboard completo - Panel de Toma de Decisiones en Metabase')
